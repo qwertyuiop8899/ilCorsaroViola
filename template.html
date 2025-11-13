@@ -312,6 +312,22 @@
             config.use_uindex = useUIndexCheckbox.checked;
             config.use_knaben = useKnabenCheckbox.checked;
             
+            // Check if at least one search site is selected
+            let searchSites = [];
+            if (config.use_corsaronero) searchSites.push("CorsaroNero");
+            if (config.use_uindex) searchSites.push("UIndex");
+            if (config.use_knaben) searchSites.push("Knaben");
+            
+            if (searchSites.length === 0) {
+                // No search sites selected - show error
+                statusEl.textContent = "❌ Seleziona almeno un sito per la ricerca";
+                statusEl.style.color = 'var(--error-color)';
+                linkContainer.style.display = "none";
+                installButton.disabled = true;
+                copyButton.disabled = true;
+                return;
+            }
+            
             // Generate install URL
             const encodedConfig = btoa(JSON.stringify(config));
             const installUrl = `stremio://${window.location.host}/${encodedConfig}/manifest.json`;
@@ -329,14 +345,8 @@
             if (config.mediaflow_url) services.push("MediaFlow");
             if (config.jackett_url) services.push("Jackettio");
             
-            // Search sites
-            let searchSites = [];
-            if (config.use_corsaronero) searchSites.push("CorsaroNero");
-            if (config.use_uindex) searchSites.push("UIndex");
-            if (config.use_knaben) searchSites.push("Knaben");
-            
             const serviceText = services.length > 0 ? ` (${services.join(', ')})` : ' (Solo P2P)';
-            const searchText = searchSites.length > 0 ? ` | Siti: ${searchSites.join(', ')}` : ' | ⚠️ Nessun sito selezionato';
+            const searchText = ` | Siti: ${searchSites.join(', ')}`;
             statusEl.textContent = `✓ Configurazione pronta${serviceText}${searchText}`;
             statusEl.style.color = 'var(--success-color)';
         }
