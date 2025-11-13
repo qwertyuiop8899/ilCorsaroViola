@@ -1246,6 +1246,83 @@ function limitResultsByLanguageAndQuality(results, italianLimit = 5, otherLimit 
     return sortByQualityAndSeeders(finalResults);
 }
 
+// ✅ NUOVA FUNZIONE: Trova il file corretto in un pack basandosi su season/episode
+function findEpisodeFileInPack(files, season, episode) {
+    if (!season || !episode || !files || files.length === 0) return null;
+    
+    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+    
+    // Filtra solo i file video
+    const videoFiles = files.filter(file => {
+        const lowerPath = file.path.toLowerCase();
+        return videoExtensions.some(ext => lowerPath.endsWith(ext)) &&
+               (!junkKeywords.some(junk => lowerPath.includes(junk)) || file.bytes > 250 * 1024 * 1024);
+    });
+    
+    // Pattern comuni per episodi
+    const patterns = [
+        new RegExp(`s0*${season}e0*${episode}`, 'i'),        // S27E02, s27e02, S027E002
+        new RegExp(`${season}x0*${episode}`, 'i'),           // 27x02, 27x2
+        new RegExp(`s0*${season}\\.e0*${episode}`, 'i'),     // S27.E02
+        new RegExp(`s0*${season} e0*${episode}`, 'i'),       // S27 E02
+        new RegExp(`stagione[\\s_]*0*${season}[\\s_]*ep?[\\s_]*0*${episode}`, 'i'), // Stagione 27 Ep 02
+    ];
+    
+    console.log(`🔍 [FileMatch] Looking for S${season}E${episode}`);
+    
+    // 1. Prima prova con i pattern standard (S27E02, 27x02, etc.)
+    for (const pattern of patterns) {
+        const matched = videoFiles.find(file => pattern.test(file.path));
+        if (matched) {
+            console.log(`✅ [FileMatch] Found match with pattern ${pattern}: ${matched.path}`);
+            return matched;
+        }
+    }
+    
+    // 2. Prova a trovare il file esaminando i nomi in ordine sequenziale
+    // Cerca pattern come "e602" o "ep602" dove il numero potrebbe essere l'episodio assoluto
+    const sequentialPattern = /\.e(\d{3,4})\./i; // Matches ".e602." or ".e0602."
+    const filesWithEpisodeNumbers = videoFiles
+        .map(file => {
+            const match = file.path.match(sequentialPattern);
+            return {
+                file,
+                episodeNum: match ? parseInt(match[1]) : null
+            };
+        })
+        .filter(item => item.episodeNum !== null)
+        .sort((a, b) => a.episodeNum - b.episodeNum);
+    
+    if (filesWithEpisodeNumbers.length > 0) {
+        // Cerca il file più vicino al numero di episodio calcolato
+        // Stima approssimativa: ~22 episodi per stagione
+        const estimatedAbsolute = ((season - 1) * 22) + episode;
+        const tolerance = 30; // Cerca nell'intervallo ±30 episodi
+        
+        // Trova il match più vicino (non solo il primo)
+        let bestMatch = null;
+        let bestDistance = Infinity;
+        
+        for (const item of filesWithEpisodeNumbers) {
+            const distance = Math.abs(item.episodeNum - estimatedAbsolute);
+            if (distance <= tolerance && distance < bestDistance) {
+                bestMatch = item;
+                bestDistance = distance;
+            }
+        }
+        
+        if (bestMatch) {
+            console.log(`✅ [FileMatch] Found sequential match (e${bestMatch.episodeNum} ≈ S${season}E${episode}, est. e${estimatedAbsolute}): ${bestMatch.file.path}`);
+            return bestMatch.file;
+        }
+    }
+    
+    // 3. Se non trova nulla, restituisci null (userà fallback più grande)
+    console.log(`⚠️ [FileMatch] No match found for S${season}E${episode}, will use fallback`);
+    return null;
+}
+
 // ✅ Funzione di logging asincrona che non blocca la risposta
 async function logRequest(request, response, duration) {
     const { method } = request;
@@ -3329,21 +3406,32 @@ export default async function handler(req, res) {
                 // STEP 3: Handle file selection if needed (like Torrentio _selectTorrentFiles)
                 if (torrent.status === 'waiting_files_selection') {
                     console.log(`[RealDebrid] Selecting files...`);
-                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
-                    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
                     
-                    const videoFiles = (torrent.files || [])
-                        .filter(file => {
-                            const lowerPath = file.path.toLowerCase();
-                            return videoExtensions.some(ext => lowerPath.endsWith(ext));
-                        })
-                        .filter(file => {
-                            const lowerPath = file.path.toLowerCase();
-                            return !junkKeywords.some(junk => lowerPath.includes(junk)) || file.bytes > 250 * 1024 * 1024;
-                        })
-                        .sort((a, b) => b.bytes - a.bytes);
+                    // 🎯 Try smart episode matching first (for series)
+                    let targetFile = null;
+                    if (type === 'series' && season && episode) {
+                        targetFile = findEpisodeFileInPack(torrent.files, parseInt(season), parseInt(episode));
+                    }
                     
-                    const targetFile = videoFiles[0] || torrent.files.sort((a, b) => b.bytes - a.bytes)[0];
+                    // Fallback to largest video if no episode match
+                    if (!targetFile) {
+                        const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+                        const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+                        
+                        const videoFiles = (torrent.files || [])
+                            .filter(file => {
+                                const lowerPath = file.path.toLowerCase();
+                                return videoExtensions.some(ext => lowerPath.endsWith(ext));
+                            })
+                            .filter(file => {
+                                const lowerPath = file.path.toLowerCase();
+                                return !junkKeywords.some(junk => lowerPath.includes(junk)) || file.bytes > 250 * 1024 * 1024;
+                            })
+                            .sort((a, b) => b.bytes - a.bytes);
+                        
+                        targetFile = videoFiles[0] || torrent.files.sort((a, b) => b.bytes - a.bytes)[0];
+                        console.log(`[RealDebrid] Using fallback: largest video file`);
+                    }
                     
                     if (targetFile) {
                         await realdebrid.selectFiles(torrent.id, targetFile.id);
@@ -3363,22 +3451,33 @@ export default async function handler(req, res) {
                     // ✅ READY: Unrestrict and stream
                     console.log(`[RealDebrid] Torrent ready, unrestricting...`);
                     
-                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
-                    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
-                    
                     const selectedFiles = (torrent.files || []).filter(file => file.selected === 1);
-                    const videos = selectedFiles
-                        .filter(file => {
-                            const lowerPath = file.path.toLowerCase();
-                            return videoExtensions.some(ext => lowerPath.endsWith(ext));
-                        })
-                        .filter(file => {
-                            const lowerPath = file.path.toLowerCase();
-                            return !junkKeywords.some(junk => lowerPath.includes(junk)) || file.bytes > 250 * 1024 * 1024;
-                        })
-                        .sort((a, b) => b.bytes - a.bytes);
                     
-                    const targetFile = videos[0] || selectedFiles.sort((a, b) => b.bytes - a.bytes)[0];
+                    // 🎯 Try smart episode matching first (for series)
+                    let targetFile = null;
+                    if (type === 'series' && season && episode) {
+                        targetFile = findEpisodeFileInPack(selectedFiles, parseInt(season), parseInt(episode));
+                    }
+                    
+                    // Fallback to largest video if no episode match
+                    if (!targetFile) {
+                        const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+                        const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+                        
+                        const videos = selectedFiles
+                            .filter(file => {
+                                const lowerPath = file.path.toLowerCase();
+                                return videoExtensions.some(ext => lowerPath.endsWith(ext));
+                            })
+                            .filter(file => {
+                                const lowerPath = file.path.toLowerCase();
+                                return !junkKeywords.some(junk => lowerPath.includes(junk)) || file.bytes > 250 * 1024 * 1024;
+                            })
+                            .sort((a, b) => b.bytes - a.bytes);
+                        
+                        targetFile = videos[0] || selectedFiles.sort((a, b) => b.bytes - a.bytes)[0];
+                        console.log(`[RealDebrid] Using fallback: largest video file`);
+                    }
                     
                     if (!targetFile) {
                         console.log(`[RealDebrid] No video file found`);
@@ -3562,6 +3661,8 @@ export default async function handler(req, res) {
                         console.log(`▶️ Torrent requires file selection. Selecting main video file...`);
                         if (!torrentInfo.files || torrentInfo.files.length === 0) throw new Error('Torrent is empty or invalid.');
                         
+                        // Note: /rd-add/ endpoint doesn't have season/episode info, so it uses fallback (largest file)
+                        // Smart episode matching only works in /rd-stream/ endpoint
                         const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv'];
                         const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
 
@@ -3615,6 +3716,8 @@ export default async function handler(req, res) {
                         if (torrentInfo.links.length === 1) {
                             downloadLink = torrentInfo.links[0];
                         } else {
+                            // Note: /rd-add/ endpoint doesn't have season/episode info, so it uses fallback (largest file)
+                            // Smart episode matching only works in /rd-stream/ endpoint
                             const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv'];
                             const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
                             const selectedVideoFiles = torrentInfo.files.filter(file => file.selected === 1 && videoExtensions.some(ext => file.path.toLowerCase().endsWith(ext)) && !junkKeywords.some(junk => file.path.toLowerCase().includes(junk)));
@@ -4130,21 +4233,43 @@ export default async function handler(req, res) {
                     // ✅ READY: Unrestrict and stream
                     console.log(`[Torbox] Torrent ready, unrestricting...`);
                     
-                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv'];
-                    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+                    // 🎯 Try smart episode matching first (for series)
+                    // Note: Torbox files have {id, name, size} structure (different from RealDebrid)
+                    let targetVideo = null;
+                    if (type === 'series' && season && episode) {
+                        // Convert Torbox files to RealDebrid-like format for compatibility with findEpisodeFileInPack
+                        const filesForMatching = (torrent.files || []).map(f => ({
+                            path: f.name,
+                            bytes: f.size,
+                            id: f.id,
+                            selected: 1
+                        }));
+                        const matchedFile = findEpisodeFileInPack(filesForMatching, parseInt(season), parseInt(episode));
+                        if (matchedFile) {
+                            // Convert back to Torbox file format
+                            targetVideo = torrent.files.find(f => f.id === matchedFile.id);
+                        }
+                    }
                     
-                    const videos = (torrent.files || [])
-                        .filter(file => {
-                            const lowerName = file.name?.toLowerCase() || '';
-                            return videoExtensions.some(ext => lowerName.endsWith(ext));
-                        })
-                        .filter(file => {
-                            const lowerName = file.name?.toLowerCase() || '';
-                            return !junkKeywords.some(junk => lowerName.includes(junk)) || file.size > 250 * 1024 * 1024;
-                        })
-                        .sort((a, b) => b.size - a.size);
-                    
-                    const targetVideo = videos[0];
+                    // Fallback to largest video if no episode match
+                    if (!targetVideo) {
+                        const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv'];
+                        const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+                        
+                        const videos = (torrent.files || [])
+                            .filter(file => {
+                                const lowerName = file.name?.toLowerCase() || '';
+                                return videoExtensions.some(ext => lowerName.endsWith(ext));
+                            })
+                            .filter(file => {
+                                const lowerName = file.name?.toLowerCase() || '';
+                                return !junkKeywords.some(junk => lowerName.includes(junk)) || file.size > 250 * 1024 * 1024;
+                            })
+                            .sort((a, b) => b.size - a.size);
+                        
+                        targetVideo = videos[0];
+                        console.log(`[Torbox] Using fallback: largest video file`);
+                    }
                     
                     if (!targetVideo) {
                         if (torrent.files.every(file => file.name?.endsWith('.rar') || file.name?.endsWith('.zip'))) {
@@ -4253,9 +4378,6 @@ export default async function handler(req, res) {
                     // ✅ READY: Get files and unrestrict
                     console.log(`[AllDebrid] Magnet ready, getting files...`);
                     
-                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
-                    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
-                    
                     // Extract files from magnetStatus
                     const files = magnetStatus.links || [];
                     
@@ -4264,21 +4386,45 @@ export default async function handler(req, res) {
                         return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
                     }
                     
-                    // Find video files
-                    const videos = files
-                        .filter(file => {
-                            const filename = file.filename || file.link || '';
-                            return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-                        })
-                        .filter(file => {
-                            const filename = file.filename || file.link || '';
-                            const lowerName = filename.toLowerCase();
-                            const size = file.size || 0;
-                            return !junkKeywords.some(junk => lowerName.includes(junk)) || size > 250 * 1024 * 1024;
-                        })
-                        .sort((a, b) => (b.size || 0) - (a.size || 0));
+                    // 🎯 Try smart episode matching first (for series)
+                    // Note: AllDebrid files have {filename, link, size} structure
+                    let targetFile = null;
+                    if (type === 'series' && season && episode) {
+                        // Convert AllDebrid files to RealDebrid-like format for compatibility with findEpisodeFileInPack
+                        const filesForMatching = files.map(f => ({
+                            path: f.filename || f.link || '',
+                            bytes: f.size || 0,
+                            link: f.link
+                        }));
+                        const matchedFile = findEpisodeFileInPack(filesForMatching, parseInt(season), parseInt(episode));
+                        if (matchedFile) {
+                            // Find original file by link
+                            targetFile = files.find(f => f.link === matchedFile.link);
+                        }
+                    }
                     
-                    const targetFile = videos[0];
+                    // Fallback to largest video if no episode match
+                    if (!targetFile) {
+                        const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+                        const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
+                        
+                        // Find video files
+                        const videos = files
+                            .filter(file => {
+                                const filename = file.filename || file.link || '';
+                                return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+                            })
+                            .filter(file => {
+                                const filename = file.filename || file.link || '';
+                                const lowerName = filename.toLowerCase();
+                                const size = file.size || 0;
+                                return !junkKeywords.some(junk => lowerName.includes(junk)) || size > 250 * 1024 * 1024;
+                            })
+                            .sort((a, b) => (b.size || 0) - (a.size || 0));
+                        
+                        targetFile = videos[0];
+                        console.log(`[AllDebrid] Using fallback: largest video file`);
+                    }
                     
                     if (!targetFile) {
                         console.log(`[AllDebrid] No video file found`);
