@@ -275,10 +275,29 @@ async function fetchCorsaroNeroSingle(searchQuery, type = 'movie') {
         const searchHtml = await searchResponse.text();
 
         const $ = cheerio.load(searchHtml);
+        
+        // 🔍 DEBUG: Log HTML structure
+        console.log(`🏴‍☠️ [DEBUG] Search response HTML size: ${searchHtml.length} chars`);
+        const allTables = $('table').length;
+        const allTbody = $('tbody').length;
+        const allRows = $('tr').length;
+        console.log(`🏴‍☠️ [DEBUG] Found ${allTables} tables, ${allTbody} tbody, ${allRows} total rows`);
+        
         const rows = $('tbody tr');
         
         if (rows.length === 0) {
             console.log('🏴‍☠️ No results found on CorsaroNero.');
+            // 🔍 Try alternative selectors
+            console.log(`🏴‍☠️ [DEBUG] Trying alternative selector: table tr`);
+            const altRows = $('table tr');
+            console.log(`🏴‍☠️ [DEBUG] Alternative selector found ${altRows.length} rows`);
+            
+            // Check if page contains "Nessun risultato" or similar
+            const pageText = $('body').text().toLowerCase();
+            if (pageText.includes('nessun risultato') || pageText.includes('no results')) {
+                console.log('🏴‍☠️ [DEBUG] Page explicitly says no results');
+            }
+            
             return [];
         }
 
@@ -2935,7 +2954,9 @@ async function handleStream(type, id, config, workerOrigin) {
 // ✅ TMDB helper functions (keeping existing but adding better error handling)
 async function getTMDBDetails(tmdbId, type = 'movie', tmdbApiKey, append = 'external_ids') {
     try {
-        const response = await fetch(`${TMDB_BASE_URL}/${type}/${tmdbId}?api_key=${tmdbApiKey}&append_to_response=${append}`);
+        // Convert 'series' to 'tv' for TMDB API
+        const tmdbType = type === 'series' ? 'tv' : type;
+        const response = await fetch(`${TMDB_BASE_URL}/${tmdbType}/${tmdbId}?api_key=${tmdbApiKey}&append_to_response=${append}`);
         if (!response.ok) throw new Error(`TMDB API error: ${response.status}`);
         return await response.json();
     } catch (error) {
