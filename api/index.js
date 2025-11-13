@@ -290,13 +290,24 @@ async function fetchCorsaroNeroSingle(searchQuery, type = 'movie') {
         // Filtra le righe in base alla categoria
         const filteredRows = rows.toArray().filter((row) => {
             const categoryElement = $(row).find('td:first-child span');
-            if (!categoryElement.length) return false;
+            if (!categoryElement.length) {
+                console.log(`🏴‍☠️   - Row has no category element`);
+                return false;
+            }
             
             const category = categoryElement.text().trim().toLowerCase();
-            const isAccepted = acceptedCategories.some(acceptedCat => category === acceptedCat);
+            console.log(`🏴‍☠️   - Found category: "${category}"`);
+            
+            const isAccepted = acceptedCategories.some(acceptedCat => {
+                const match = category === acceptedCat;
+                console.log(`🏴‍☠️     Comparing "${category}" === "${acceptedCat}": ${match}`);
+                return match;
+            });
             
             if (!isAccepted) {
-                console.log(`🏴‍☠️   - Skipping category: "${category}"`);
+                console.log(`🏴‍☠️   - ❌ Skipping category: "${category}"`);
+            } else {
+                console.log(`🏴‍☠️   - ✅ Accepted category: "${category}"`);
             }
             
             return isAccepted;
