@@ -2785,8 +2785,14 @@ async function handleStream(type, id, config, workerOrigin) {
                     let streamError = null;
                     
                     // ✅ UNIFIED ENDPOINT: Always use /rd-stream/ with magnet link
-                    // The endpoint will handle: global cache, personal cache, or add new torrent
-                    streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}`;
+                    // For series, add season/episode info for correct file selection in packs
+                    // If fileIndex is available (from DB), pass it for precise file selection
+                    if (type === 'series' && season && episode) {
+                        const fileIndex = result.fileIndex || ''; // From DB (precise) or empty (use pattern matching)
+                        streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}/${season}/${episode}/${fileIndex}`;
+                    } else {
+                        streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}`;
+                    }
                     
                     // ✅ TORRENTIO LOGIC: Check if ANY variant is cached (variants.length > 0)
                     // rdCacheData.cached is true when variants.length > 0
@@ -3369,6 +3375,9 @@ export default async function handler(req, res) {
             const pathParts = url.pathname.split('/');
             const encodedConfigStr = pathParts[2];
             const encodedMagnet = pathParts[3];
+            const season = pathParts[4] ? parseInt(pathParts[4]) : null; // Season number (for file selection in packs)
+            const episode = pathParts[5] ? parseInt(pathParts[5]) : null; // Episode number (for file selection in packs)
+            const fileIndex = pathParts[6] ? parseInt(pathParts[6]) : null; // File index from DB (precise selection)
             const workerOrigin = url.origin;
             
             // Initialize database for cache tracking
@@ -3438,7 +3447,60 @@ export default async function handler(req, res) {
                         })
                         .sort((a, b) => b.bytes - a.bytes);
                     
-                    const targetFile = videoFiles[0] || torrent.files.sort((a, b) => b.bytes - a.bytes)[0];
+                    let targetFile = null;
+                    
+                    // ✅ PRIORITY 1: Use fileIndex from DB (precise, fastest)
+                    if (fileIndex !== null && torrent.files[fileIndex]) {
+                        targetFile = torrent.files[fileIndex];
+                        console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
+                    }
+                    // ✅ PRIORITY 2: For series episodes, try pattern matching
+                    else if (season && episode) {
+                        const seasonStr = String(season).padStart(2, '0');
+                        const episodeStr = String(episode).padStart(2, '0');
+                        console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in pack (pattern matching)...`);
+                        
+                        // Try to find file matching the episode with multiple patterns
+                        targetFile = videoFiles.find(file => {
+                            const lowerPath = file.path.toLowerCase();
+                            const lowerFilename = file.path.split('/').pop().toLowerCase();
+                            
+                            // Patterns to match (in order of specificity)
+                            return (
+                                // Standard: S08E02
+                                lowerPath.includes(`s${seasonStr}e${episodeStr}`) ||
+                                // Compact: 8x02
+                                lowerPath.includes(`${season}x${episodeStr}`) ||
+                                // Dotted: s08.e02
+                                lowerPath.includes(`s${seasonStr}.e${episodeStr}`) ||
+                                // Spaced: Season 8 Episode 2
+                                lowerPath.includes(`season ${season} episode ${episode}`) ||
+                                lowerPath.includes(`season${season}episode${episode}`) ||
+                                // Italian: Stagione 8 Episodio 2
+                                lowerPath.includes(`stagione ${season} episodio ${episode}`) ||
+                                lowerPath.includes(`stagione${season}episodio${episode}`) ||
+                                // Compact numbers: 802 (with word boundaries)
+                                new RegExp(`[^0-9]${season}${episodeStr}[^0-9]`).test(lowerPath) ||
+                                // Alternative formats
+                                lowerPath.includes(`ep${episodeStr}`) && lowerPath.includes(`s${seasonStr}`) ||
+                                lowerPath.includes(`e${episodeStr}`) && lowerPath.includes(`s${seasonStr}`)
+                            );
+                        });
+                        
+                        if (targetFile) {
+                            console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
+                        } else {
+                            console.log(`[RealDebrid] ⚠️ Specific episode not found, using largest file`);
+                        }
+                    }
+                    
+                    // ✅ PRIORITY 3: Fallback - use largest file
+                    if (!targetFile) {
+                        targetFile = videoFiles[0] || torrent.files.sort((a, b) => b.bytes - a.bytes)[0];
+                        if (season && episode) {
+                            console.log(`[RealDebrid] ⚠️ Fallback: Using largest video file`);
+                        }
+                    }
                     
                     if (targetFile) {
                         await realdebrid.selectFiles(torrent.id, targetFile.id);
@@ -3473,7 +3535,56 @@ export default async function handler(req, res) {
                         })
                         .sort((a, b) => b.bytes - a.bytes);
                     
-                    const targetFile = videos[0] || selectedFiles.sort((a, b) => b.bytes - a.bytes)[0];
+                    let targetFile = null;
+                    
+                    // ✅ PRIORITY 1: Use fileIndex from DB (precise)
+                    if (fileIndex !== null) {
+                        targetFile = selectedFiles.find(f => f.id === fileIndex) || selectedFiles[fileIndex];
+                        if (targetFile) {
+                            console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
+                        }
+                    }
+                    
+                    // ✅ PRIORITY 2: For series episodes, try pattern matching
+                    if (!targetFile && season && episode) {
+                        const seasonStr = String(season).padStart(2, '0');
+                        const episodeStr = String(episode).padStart(2, '0');
+                        console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in downloaded files (pattern matching)...`);
+                        
+                        targetFile = videos.find(file => {
+                            const lowerPath = file.path.toLowerCase();
+                            return (
+                                // Standard patterns
+                                lowerPath.includes(`s${seasonStr}e${episodeStr}`) ||
+                                lowerPath.includes(`${season}x${episodeStr}`) ||
+                                lowerPath.includes(`s${seasonStr}.e${episodeStr}`) ||
+                                // Season/Episode words
+                                lowerPath.includes(`season ${season} episode ${episode}`) ||
+                                lowerPath.includes(`season${season}episode${episode}`) ||
+                                lowerPath.includes(`stagione ${season} episodio ${episode}`) ||
+                                lowerPath.includes(`stagione${season}episodio${episode}`) ||
+                                // Compact numbers
+                                new RegExp(`[^0-9]${season}${episodeStr}[^0-9]`).test(lowerPath) ||
+                                // Alternative
+                                lowerPath.includes(`ep${episodeStr}`) && lowerPath.includes(`s${seasonStr}`) ||
+                                lowerPath.includes(`e${episodeStr}`) && lowerPath.includes(`s${seasonStr}`)
+                            );
+                        });
+                        
+                        if (targetFile) {
+                            console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
+                        } else {
+                            console.log(`[RealDebrid] ⚠️ Specific episode not found, using largest file`);
+                        }
+                    }
+                    
+                    // ✅ PRIORITY 3: Fallback - use largest file
+                    if (!targetFile) {
+                        targetFile = videos[0] || selectedFiles.sort((a, b) => b.bytes - a.bytes)[0];
+                        if (season && episode) {
+                            console.log(`[RealDebrid] ⚠️ Fallback: Using largest video file`);
+                        }
+                    }
                     
                     if (!targetFile) {
                         console.log(`[RealDebrid] No video file found`);
