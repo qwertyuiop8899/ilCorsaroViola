@@ -1945,11 +1945,52 @@ async function saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelp
     try {
         console.log(`💾 [DB Save] Saving ${corsaroResults.length} CorsaroNero results...`);
         
+        // 🔥 OPZIONE C: Se titolo breve (≤6 lettere, 1 parola), non filtrare query generiche
+        const titleWords = mediaDetails.title.trim().split(/\s+/);
+        const isShortTitle = titleWords.length === 1 && titleWords[0].length <= 6;
+        console.log(`📏 [DB Save] Title "${mediaDetails.title}" - Short: ${isShortTitle}`);
+        
         const torrentsToInsert = [];
         for (const result of corsaroResults) {
             if (!result.infoHash || result.infoHash.length < 32) {
                 console.log(`⚠️ [DB Save] Skipping invalid hash: ${result.title}`);
                 continue;
+            }
+            
+            // 🔥 CHECK: Torrent già presente nel DB?
+            // Note: batchInsertTorrents gestisce duplicati con ON CONFLICT DO NOTHING
+            // quindi non serve check esplicito qui
+            
+            // 🔥 OPZIONE B: Title matching con 85% threshold (usa logica di isExactEpisodeMatch)
+            const normalizedTorrentTitle = result.title
+                .replace(/<[^>]*>/g, '')
+                .replace(/[\[.*?\]]/g, '')
+                .replace(/\(.*?\)/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+            
+            const normalizedSearchTitle = mediaDetails.title
+                .toLowerCase()
+                .replace(/[^\w\s]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            const searchWords = normalizedSearchTitle.split(' ')
+                .filter(word => word.length > 2)
+                .filter(word => !['the', 'and', 'or', 'in', 'on', 'at', 'to', 'of', 'for'].includes(word));
+            
+            if (searchWords.length > 0 && !isShortTitle) {
+                const matchingWords = searchWords.filter(word => 
+                    normalizedTorrentTitle.includes(word)
+                );
+                const matchPercentage = matchingWords.length / searchWords.length;
+                
+                if (matchPercentage < 0.85) {
+                    console.log(`⏭️ [DB Save] SKIP: "${result.title}" (${(matchPercentage * 100).toFixed(0)}% match with "${mediaDetails.title}", need 85%)`);
+                    continue;
+                }
+                console.log(`✅ [DB Save] Title match: "${result.title}" (${(matchPercentage * 100).toFixed(0)}% match)`);
             }
             
             // Extract IMDB ID from title if available
@@ -2632,6 +2673,13 @@ async function handleStream(type, id, config, workerOrigin) {
                     parseInt(season), 
                     parseInt(episode)
                 );
+                
+                // 🔥 ALSO search for season packs and complete packs (they don't have file_index)
+                const packResults = await dbHelper.searchByImdbId(mediaDetails.imdbId, type);
+                console.log(`💾 [DB] Found ${packResults.length} additional torrents (packs/complete series)`);
+                
+                // Merge: episode files + packs
+                dbResults = [...dbResults, ...packResults];
             } else {
                 // Search for movie
                 dbResults = await dbHelper.searchByImdbId(mediaDetails.imdbId, type);
@@ -2672,8 +2720,15 @@ async function handleStream(type, id, config, workerOrigin) {
                     if (tmdbTorrents.length > 0 && tmdbTorrents[0].imdb_id) {
                         const imdbId = tmdbTorrents[0].imdb_id;
                         console.log(`💾 [DB] Found imdbId ${imdbId} from TMDb, searching episode files...`);
-                        dbResults = await dbHelper.searchEpisodeFiles(imdbId, parseInt(season), parseInt(episode));
-                        console.log(`💾 [DB] Found ${dbResults.length} episode files!`);
+                        
+                        // Search episode files
+                        const episodeFiles = await dbHelper.searchEpisodeFiles(imdbId, parseInt(season), parseInt(episode));
+                        console.log(`💾 [DB] Found ${episodeFiles.length} files for S${season}E${episode}`);
+                        
+                        // 🔥 ALSO get all torrents (for packs)
+                        console.log(`💾 [DB] Also fetching all torrents for packs...`);
+                        dbResults = [...episodeFiles, ...tmdbTorrents];
+                        console.log(`💾 [DB] Total: ${dbResults.length} results (files + packs)`);
                     } else {
                         // Fallback: use TMDb search (won't have file_title)
                         dbResults = tmdbTorrents;
@@ -2756,7 +2811,15 @@ async function handleStream(type, id, config, workerOrigin) {
                 searchQueries.push(`${mediaDetails.title} S01`);
                 
                 // 6. Fallback: solo il titolo (per pack multi-stagione)
-                searchQueries.push(mediaDetails.title);
+                // 🔥 OPZIONE C: Solo se titolo breve (≤6 lettere, 1 parola)
+                const titleWords = mediaDetails.title.trim().split(/\s+/);
+                const isShortTitle = titleWords.length === 1 && titleWords[0].length <= 6;
+                if (isShortTitle) {
+                    console.log(`📏 Short title "${mediaDetails.title}", including generic query`);
+                    searchQueries.push(mediaDetails.title);
+                } else {
+                    console.log(`📏 Long title "${mediaDetails.title}", skipping generic query for background enrichment`);
+                }
             }
         } else { // Movie
             searchQueries.push(`${mediaDetails.title} ${mediaDetails.year}`);
