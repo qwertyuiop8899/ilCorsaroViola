@@ -2858,6 +2858,7 @@ async function handleStream(type, id, config, workerOrigin) {
                     if (!result.file_title && existing.file_title) {
                         result.file_title = existing.file_title;
                         result.fileIndex = existing.fileIndex;
+                        console.log(`🔄 [Dedup] Preserved file_title: ${existing.file_title}`);
                     }
                     bestResults.set(hash, result);
                 } else {
@@ -2866,7 +2867,7 @@ async function handleStream(type, id, config, workerOrigin) {
                     if (!existing.file_title && result.file_title) {
                         existing.file_title = result.file_title;
                         existing.fileIndex = result.fileIndex;
-                        bestResults.set(hash, existing);
+                        console.log(`⏭️  [Dedup] Added file_title from skipped: ${result.file_title}`);
                     }
                 }
             }
