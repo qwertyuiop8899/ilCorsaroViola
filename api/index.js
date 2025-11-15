@@ -1935,7 +1935,8 @@ async function enrichDatabaseInBackground(mediaDetails, type, season = null, epi
         // If we have IMDB but not TMDB, try to get TMDB ID
         if (mediaDetails.imdbId && !mediaDetails.tmdbId) {
             try {
-                const tmdbData = await getDetailsFromIMDB(mediaDetails.imdbId);
+                const tmdbKey = process.env.TMDB_KEY || '5462f78469f3d80bf520164529.4c16e4';
+                const tmdbData = await getTMDBDetailsByImdb(mediaDetails.imdbId, tmdbKey);
                 if (tmdbData && tmdbData.tmdbId) {
                     mediaDetails.tmdbId = tmdbData.tmdbId;
                     console.log(`🔄 [Background] Enriched TMDB ID: ${tmdbData.tmdbId} from IMDB: ${mediaDetails.imdbId}`);
@@ -1945,47 +1946,76 @@ async function enrichDatabaseInBackground(mediaDetails, type, season = null, epi
             }
         }
         
-        // 🌍 Get original title from TMDB (critical for Italian content!)
+        // �🇹 Get ITALIAN title and ORIGINAL title from TMDB (critical for Italian content!)
+        let italianTitle = null;
         let originalTitle = null;
         if (mediaDetails.tmdbId) {
             try {
                 const tmdbType = type === 'series' ? 'tv' : 'movie';
-                const tmdbUrl = `https://api.themoviedb.org/3/${tmdbType}/${mediaDetails.tmdbId}?api_key=${process.env.TMDB_KEY || '5462f78469f3d80bf520164529.4c16e4'}`;
-                const response = await fetch(tmdbUrl);
-                if (response.ok) {
-                    const data = await response.json();
-                    originalTitle = data.original_title || data.original_name;
-                    if (originalTitle && originalTitle !== mediaDetails.title) {
+                const tmdbKey = process.env.TMDB_KEY || '5462f78469f3d80bf520164529.4c16e4';
+                
+                // 1. Get ITALIAN title (language=it-IT)
+                const italianUrl = `https://api.themoviedb.org/3/${tmdbType}/${mediaDetails.tmdbId}?api_key=${tmdbKey}&language=it-IT`;
+                const italianResponse = await fetch(italianUrl);
+                if (italianResponse.ok) {
+                    const italianData = await italianResponse.json();
+                    italianTitle = italianData.title || italianData.name;
+                    if (italianTitle && italianTitle !== mediaDetails.title) {
+                        console.log(`🇮🇹 [Background] Found Italian title: "${italianTitle}"`);
+                    }
+                }
+                
+                // 2. Get ORIGINAL title (no language param = original language)
+                const originalUrl = `https://api.themoviedb.org/3/${tmdbType}/${mediaDetails.tmdbId}?api_key=${tmdbKey}`;
+                const originalResponse = await fetch(originalUrl);
+                if (originalResponse.ok) {
+                    const originalData = await originalResponse.json();
+                    originalTitle = originalData.original_title || originalData.original_name;
+                    if (originalTitle && originalTitle !== mediaDetails.title && originalTitle !== italianTitle) {
                         console.log(`🌍 [Background] Found original title: "${originalTitle}"`);
                     }
                 }
             } catch (error) {
-                console.warn(`⚠️ [Background] Could not fetch original title:`, error.message);
+                console.warn(`⚠️ [Background] Could not fetch titles:`, error.message);
             }
         }
         
-        // Build search queries (ENGLISH + ORIGINAL TITLE)
+        // Build search queries (ENGLISH + ITALIAN + ORIGINAL)
         const searchQueries = [];
         if (type === 'series') {
             const seasonStr = season ? String(season).padStart(2, '0') : '';
-            // English title queries
-            searchQueries.push(`${mediaDetails.title} S${seasonStr}`); // Season pack
-            searchQueries.push(`${mediaDetails.title} Stagione ${season}`); // Italian
-            searchQueries.push(`${mediaDetails.title} Season ${season}`); // English
             
-            // 🌍 Original title queries (CRITICAL!)
-            if (originalTitle && originalTitle !== mediaDetails.title) {
+            // 🇮🇹 PRIORITY 1: Italian title queries (MOST IMPORTANT for CorsaroNero!)
+            if (italianTitle && italianTitle !== mediaDetails.title) {
+                searchQueries.push(`${italianTitle} S${seasonStr}`);
+                searchQueries.push(`${italianTitle} Stagione ${season}`);
+                searchQueries.push(`${italianTitle} Season ${season}`);
+            }
+            
+            // 🌍 PRIORITY 2: Original title queries
+            if (originalTitle && originalTitle !== mediaDetails.title && originalTitle !== italianTitle) {
                 searchQueries.push(`${originalTitle} S${seasonStr}`);
                 searchQueries.push(`${originalTitle} Stagione ${season}`);
                 searchQueries.push(`${originalTitle} Season ${season}`);
             }
-        } else {
-            searchQueries.push(`${mediaDetails.title} ${mediaDetails.year || ''}`);
             
-            // 🌍 Original title for movies
-            if (originalTitle && originalTitle !== mediaDetails.title) {
+            // 🇬🇧 PRIORITY 3: English title queries (fallback)
+            searchQueries.push(`${mediaDetails.title} S${seasonStr}`);
+            searchQueries.push(`${mediaDetails.title} Stagione ${season}`);
+            searchQueries.push(`${mediaDetails.title} Season ${season}`);
+        } else {
+            // 🇮🇹 PRIORITY 1: Italian title (MOST IMPORTANT!)
+            if (italianTitle && italianTitle !== mediaDetails.title) {
+                searchQueries.push(`${italianTitle} ${mediaDetails.year || ''}`);
+            }
+            
+            // 🌍 PRIORITY 2: Original title
+            if (originalTitle && originalTitle !== mediaDetails.title && originalTitle !== italianTitle) {
                 searchQueries.push(`${originalTitle} ${mediaDetails.year || ''}`);
             }
+            
+            // 🇬🇧 PRIORITY 3: English title (fallback)
+            searchQueries.push(`${mediaDetails.title} ${mediaDetails.year || ''}`);
         }
         
         console.log(`🔄 [Background] Search queries:`, searchQueries);
@@ -4144,22 +4174,25 @@ export default async function handler(req, res) {
                         return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
                     }
                     
-                    // 🔥 CRITICAL FIX: Use file.id to get the correct link!
-                    // RealDebrid returns links[] array matching files[] order, not by filename
-                    // We need to find which position our targetFile is in the files array
-                    const fileIndex = (torrent.files || []).findIndex(f => f.id === targetFile.id);
+                    // 🔥 CRITICAL FIX: Use SELECTED files to find the correct link index!
+                    // RealDebrid returns links[] array ONLY for selected files (selected=1)
+                    // We need to find which position our targetFile is AMONG SELECTED FILES
+                    const selectedForLink = (torrent.files || []).filter(f => f.selected === 1);
+                    const fileIndex = selectedForLink.findIndex(f => f.id === targetFile.id);
                     
                     if (fileIndex === -1) {
-                        console.log(`[RealDebrid] ❌ Could not find file index for file.id=${targetFile.id}`);
+                        console.log(`[RealDebrid] ❌ Target file not in selected files (file.id=${targetFile.id})`);
+                        console.log(`[RealDebrid] Selected files: ${selectedForLink.map(f => `${f.id}:${f.path.split('/').pop()}`).join(', ')}`);
                         return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
                     }
                     
-                    console.log(`[RealDebrid] 📍 File ID: ${targetFile.id}, Array Index: ${fileIndex}, Total links: ${(torrent.links || []).length}`);
+                    console.log(`[RealDebrid] 📍 File ID: ${targetFile.id}, Selected Index: ${fileIndex}/${selectedForLink.length}, Total links: ${(torrent.links || []).length}`);
                     
                     let downloadLink = torrent.links[fileIndex];
                     
                     if (!downloadLink) {
                         console.log(`[RealDebrid] ❌ No download link at index ${fileIndex}`);
+                        console.log(`[RealDebrid] Available links: ${(torrent.links || []).length}`);
                         return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
                     }
                     
