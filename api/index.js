@@ -3733,7 +3733,14 @@ export default async function handler(req, res) {
                     if (season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
-                        console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in pack (pattern matching)...`);
+                        console.log(`[RealDebrid] 🔍 Looking for S${seasonStr}E${episodeStr} (patterns: s${seasonStr}e${episodeStr}, ${season}x${episodeStr}, ${season}x${episode}, episodio.${episode})`);
+                        
+                        // Log all available files for debugging
+                        console.log(`[RealDebrid] 📂 Available files (${videoFiles.length}):`);
+                        videoFiles.forEach((f, i) => {
+                            const filename = f.path.split('/').pop();
+                            console.log(`  ${i + 1}. ${filename} (${(f.bytes / 1024 / 1024).toFixed(0)}MB)`);
+                        });
                         
                         // Try to find file matching the episode with multiple patterns
                         targetFile = videoFiles.find(file => {
@@ -3741,7 +3748,7 @@ export default async function handler(req, res) {
                             const lowerFilename = file.path.split('/').pop().toLowerCase();
                             
                             // Patterns to match (in order of specificity)
-                            return (
+                            const matches = (
                                 // Standard: S08E02
                                 lowerPath.includes(`s${seasonStr}e${episodeStr}`) ||
                                 // Compact: 8x02 (with leading zero)
@@ -3768,12 +3775,19 @@ export default async function handler(req, res) {
                                 lowerPath.includes(`ep${episode}`) && lowerPath.includes(`s${seasonStr}`) ||
                                 lowerPath.includes(`e${episode}`) && lowerPath.includes(`s${seasonStr}`)
                             );
+                            
+                            if (matches) {
+                                console.log(`[RealDebrid] ✅ MATCHED: ${file.path}`);
+                            }
+                            
+                            return matches;
                         });
                         
                         if (targetFile) {
-                            console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
+                            console.log(`[RealDebrid] ✅ Selected episode file: ${targetFile.path}`);
                         } else {
-                            console.log(`[RealDebrid] ⚠️ Specific episode not found, using largest file`);
+                            console.log(`[RealDebrid] ❌ NO MATCH FOUND - Pattern matching failed for S${seasonStr}E${episodeStr}`);
+                            console.log(`[RealDebrid] ⚠️ Falling back to largest file (this is probably wrong!)`);
                         }
                     }
                     
@@ -3832,14 +3846,21 @@ export default async function handler(req, res) {
                     if (season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
-                        console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in downloaded files (pattern matching)...`);
+                        console.log(`[RealDebrid] 🔍 Looking for S${seasonStr}E${episodeStr} (patterns: s${seasonStr}e${episodeStr}, ${season}x${episodeStr}, ${season}x${episode}, episodio.${episode})`);
+                        
+                        // Log all available files for debugging
+                        console.log(`[RealDebrid] 📂 Selected files (${videos.length}):`);
+                        videos.forEach((f, i) => {
+                            const filename = f.path.split('/').pop();
+                            console.log(`  ${i + 1}. ${filename} (${(f.bytes / 1024 / 1024).toFixed(0)}MB)`);
+                        });
                         
                         targetFile = videos.find(file => {
                             const lowerPath = file.path.toLowerCase();
                             const lowerFilename = file.path.split('/').pop().toLowerCase();
                             
                             // Patterns to match (in order of specificity)
-                            return (
+                            const matches = (
                                 // Standard: S08E02
                                 lowerPath.includes(`s${seasonStr}e${episodeStr}`) ||
                                 // Compact: 8x02 (with leading zero)
@@ -3866,12 +3887,19 @@ export default async function handler(req, res) {
                                 lowerPath.includes(`ep${episode}`) && lowerPath.includes(`s${seasonStr}`) ||
                                 lowerPath.includes(`e${episode}`) && lowerPath.includes(`s${seasonStr}`)
                             );
+                            
+                            if (matches) {
+                                console.log(`[RealDebrid] ✅ MATCHED: ${file.path}`);
+                            }
+                            
+                            return matches;
                         });
                         
                         if (targetFile) {
-                            console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
+                            console.log(`[RealDebrid] ✅ Selected episode file: ${targetFile.path}`);
                         } else {
-                            console.log(`[RealDebrid] ⚠️ Specific episode not found in selected files`);
+                            console.log(`[RealDebrid] ❌ NO MATCH FOUND - Pattern matching failed for S${seasonStr}E${episodeStr}`);
+                            console.log(`[RealDebrid] ⚠️ Falling back to largest file (this is probably wrong!)`);
                             
                             // 🔥 SMART FIX: For series, if episode not found, delete torrent and re-add with all files
                             if (type === 'series' && selectedFiles.length < 5) { // Probably only 1 episode was selected
