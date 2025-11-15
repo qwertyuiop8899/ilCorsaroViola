@@ -3,6 +3,12 @@
 import * as cheerio from 'cheerio';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+
+// ✅ Import CommonJS modules (db-helper, id-converter)
+const require = createRequire(import.meta.url);
+const dbHelper = require('../db-helper.cjs');
+const { completeIds } = require('../lib/id-converter.cjs');
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -2239,6 +2245,91 @@ async function handleStream(type, id, config, workerOrigin) {
         const displayTitle = Array.isArray(mediaDetails.titles) ? mediaDetails.titles[0] : mediaDetails.title;
         console.log(`✅ Found: ${displayTitle} (${mediaDetails.year})`);
 
+        // ✅ STEP 1: INITIALIZE DATABASE (if credentials provided via ENV vars)
+        let dbEnabled = false;
+        if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASSWORD) {
+            try {
+                dbHelper.initDatabase({
+                    host: process.env.DB_HOST,
+                    port: process.env.DB_PORT || 5432,
+                    database: process.env.DB_NAME || 'stremizio',
+                    user: process.env.DB_USER,
+                    password: process.env.DB_PASSWORD
+                });
+                dbEnabled = true;
+                console.log('💾 [DB] Database enabled for this request');
+            } catch (error) {
+                console.error('❌ [DB] Failed to initialize database:', error.message);
+            }
+        }
+
+        // ✅ STEP 2: SEARCH DATABASE FIRST (if enabled)
+        let dbResults = [];
+        if (dbEnabled && mediaDetails.imdbId) {
+            if (type === 'series') {
+                // Search for specific episode
+                dbResults = await dbHelper.searchEpisodeFiles(
+                    mediaDetails.imdbId, 
+                    parseInt(season), 
+                    parseInt(episode)
+                );
+            } else {
+                // Search for movie
+                dbResults = await dbHelper.searchByImdbId(mediaDetails.imdbId, type);
+            }
+
+            // If found in DB, check if IDs are complete and convert if needed
+            if (dbResults.length > 0) {
+                console.log(`💾 [DB] Found ${dbResults.length} results in database!`);
+                
+                // Check if we need to complete IDs
+                const firstResult = dbResults[0];
+                if ((firstResult.imdb_id && !firstResult.tmdb_id) || 
+                    (!firstResult.imdb_id && firstResult.tmdb_id)) {
+                    console.log(`💾 [DB] Completing missing IDs for database results...`);
+                    const completed = await completeIds(
+                        firstResult.imdb_id, 
+                        firstResult.tmdb_id, 
+                        type === 'series' ? 'series' : 'movie'
+                    );
+                    
+                    // Update mediaDetails with completed IDs
+                    if (completed.tmdbId && !mediaDetails.tmdbId) {
+                        mediaDetails.tmdbId = completed.tmdbId;
+                    }
+                }
+            }
+        }
+
+        // ✅ STEP 3: If no results in DB and we have TMDb ID, try searching by TMDb
+        if (dbEnabled && dbResults.length === 0 && mediaDetails.tmdbId) {
+            console.log(`💾 [DB] No results by IMDb, trying TMDb ID: ${mediaDetails.tmdbId}`);
+            dbResults = await dbHelper.searchByTmdbId(mediaDetails.tmdbId, type);
+            
+            if (dbResults.length > 0) {
+                console.log(`💾 [DB] Found ${dbResults.length} results by TMDb ID!`);
+            }
+        }
+
+        // ✅ STEP 4: If still no results, try converting IDs and searching again
+        if (dbEnabled && dbResults.length === 0) {
+            console.log(`💾 [DB] No results found. Will search online sources...`);
+            
+            // Try to complete missing IDs for better matching later
+            if ((mediaDetails.imdbId && !mediaDetails.tmdbId) || 
+                (!mediaDetails.imdbId && mediaDetails.tmdbId)) {
+                console.log(`🔄 Completing missing media IDs for future use...`);
+                const completed = await completeIds(
+                    mediaDetails.imdbId, 
+                    mediaDetails.tmdbId, 
+                    type === 'series' ? 'series' : 'movie'
+                );
+                
+                if (completed.imdbId) mediaDetails.imdbId = completed.imdbId;
+                if (completed.tmdbId) mediaDetails.tmdbId = completed.tmdbId;
+            }
+        }
+
         // Build search queries
         const searchQueries = [];
         if (type === 'series') {
@@ -2427,6 +2518,34 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         console.log(`🔎 Found a total of ${allRawResults.length} raw results from all sources. Performing smart deduplication...`);
+
+        // ✅ ADD DATABASE RESULTS TO RAW RESULTS (if any)
+        if (dbResults.length > 0) {
+            console.log(`💾 [DB] Adding ${dbResults.length} database results to aggregation...`);
+            
+            // Convert DB results to scraper format
+            for (const dbResult of dbResults) {
+                // Build magnet link
+                const magnetLink = `magnet:?xt=urn:btih:${dbResult.info_hash}&dn=${encodeURIComponent(dbResult.title)}`;
+                
+                // Add to raw results with high priority
+                allRawResults.push({
+                    title: dbResult.title,
+                    infoHash: dbResult.info_hash.toUpperCase(),
+                    magnetLink: magnetLink,
+                    seeders: dbResult.seeders || 0,
+                    leechers: 0,
+                    size: dbResult.size ? formatBytes(dbResult.size) : 'Unknown',
+                    sizeInBytes: dbResult.size || 0,
+                    quality: extractQuality(dbResult.title),
+                    filename: dbResult.file_title || dbResult.title,
+                    source: `💾 ${dbResult.provider || 'Database'}`,
+                    fileIndex: dbResult.file_index || undefined // For series episodes
+                });
+            }
+            
+            console.log(`💾 [DB] Total raw results after DB merge: ${allRawResults.length}`);
+        }
 
         // Smart Deduplication
         const bestResults = new Map();
