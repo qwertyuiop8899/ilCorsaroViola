@@ -2826,15 +2826,26 @@ async function handleStream(type, id, config, workerOrigin) {
         
         if (type === 'series') {
             const originalCount = filteredResults.length;
-            filteredResults = filteredResults.filter(result => 
-                isExactEpisodeMatch(
+            console.log(`📺 [Episode Filtering] Starting with ${originalCount} results for S${season}E${episode}`);
+            
+            filteredResults = filteredResults.filter(result => {
+                const match = isExactEpisodeMatch(
                     result.title || result.websiteTitle,
                     kitsuId ? mediaDetails.titles : mediaDetails.title,
                     parseInt(season),
                     parseInt(episode),
                     !!kitsuId
-                )
-            );
+                );
+                
+                if (!match) {
+                    console.log(`❌ [Episode Filtering] REJECTED: "${result.title}"`);
+                } else {
+                    console.log(`✅ [Episode Filtering] ACCEPTED: "${result.title}"`);
+                }
+                
+                return match;
+            });
+            
             console.log(`📺 Episode filtering: ${filteredResults.length} of ${originalCount} results match`);
             
             // If exact matching removed too many results, be more lenient
