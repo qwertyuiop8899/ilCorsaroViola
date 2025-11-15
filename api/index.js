@@ -3011,11 +3011,9 @@ async function handleStream(type, id, config, workerOrigin) {
                     let streamError = null;
                     
                     // ✅ UNIFIED ENDPOINT: Always use /rd-stream/ with magnet link
-                    // For series, add season/episode info for correct file selection in packs
-                    // If fileIndex is available (from DB), pass it for precise file selection
+                    // For series, add season/episode info for pattern matching in packs
                     if (type === 'series' && season && episode) {
-                        const fileIndex = result.fileIndex || ''; // From DB (precise) or empty (use pattern matching)
-                        streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}/${season}/${episode}/${fileIndex}`;
+                        streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}/${season}/${episode}`;
                     } else {
                         streamUrl = `${workerOrigin}/rd-stream/${encodedConfig}/${encodeURIComponent(result.magnetLink)}`;
                     }
@@ -3635,9 +3633,8 @@ export default async function handler(req, res) {
             const pathParts = url.pathname.split('/');
             const encodedConfigStr = pathParts[2];
             const encodedMagnet = pathParts[3];
-            const season = pathParts[4] ? parseInt(pathParts[4]) : null; // Season number (for file selection in packs)
-            const episode = pathParts[5] ? parseInt(pathParts[5]) : null; // Episode number (for file selection in packs)
-            const fileIndex = pathParts[6] ? parseInt(pathParts[6]) : null; // File index from DB (precise selection)
+            const season = pathParts[4] ? parseInt(pathParts[4]) : null; // Season number (for pattern matching in packs)
+            const episode = pathParts[5] ? parseInt(pathParts[5]) : null; // Episode number (for pattern matching in packs)
             const workerOrigin = url.origin;
             
             // Determine type from presence of season/episode
@@ -3714,7 +3711,6 @@ export default async function handler(req, res) {
                 let torrent = await realdebrid.getTorrentInfo(torrentId);
                 
                 // STEP 3: Handle file selection if needed (like Torrentio _selectTorrentFiles)
-                let episodeMatchFound = false; // Track if pattern matching found the correct episode
                 let targetFile = null;
                 
                 if (torrent.status === 'waiting_files_selection') {
@@ -3733,18 +3729,8 @@ export default async function handler(req, res) {
                         })
                         .sort((a, b) => b.bytes - a.bytes);
                     
-                    // ✅ PRIORITY 1: Use fileIndex from DB (precise, fastest)
-                    // Note: fileIndex from DB should match RealDebrid file.id (1-based)
-                    if (fileIndex !== null) {
-                        targetFile = (torrent.files || []).find(file => file.id === fileIndex);
-                        if (targetFile) {
-                            console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
-                        } else {
-                            console.log(`[RealDebrid] ⚠️ File with id ${fileIndex} not found in torrent`);
-                        }
-                    }
-                    // ✅ PRIORITY 2: For series episodes, try pattern matching
-                    if (!targetFile && season && episode) {
+                    // ✅ For series episodes, use pattern matching to find the correct file
+                    if (season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
                         console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in pack (pattern matching)...`);
@@ -3785,7 +3771,6 @@ export default async function handler(req, res) {
                         });
                         
                         if (targetFile) {
-                            episodeMatchFound = true; // Pattern matching succeeded
                             console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
                         } else {
                             console.log(`[RealDebrid] ⚠️ Specific episode not found, using largest file`);
@@ -3843,19 +3828,8 @@ export default async function handler(req, res) {
                     
                     let targetFile = null;
                     
-                    // ✅ PRIORITY 1: Use fileIndex from DB (precise)
-                    // Note: fileIndex should match RealDebrid file.id (1-based)
-                    if (fileIndex !== null) {
-                        targetFile = selectedFiles.find(f => f.id === fileIndex);
-                        if (targetFile) {
-                            console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
-                        } else {
-                            console.log(`[RealDebrid] ⚠️ File with id ${fileIndex} not found in selected files`);
-                        }
-                    }
-                    
-                    // ✅ PRIORITY 2: For series episodes, try pattern matching
-                    if (!targetFile && season && episode) {
+                    // ✅ For series episodes, use pattern matching to find the correct file
+                    if (season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
                         console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in downloaded files (pattern matching)...`);
@@ -3895,10 +3869,57 @@ export default async function handler(req, res) {
                         });
                         
                         if (targetFile) {
-                            episodeMatchFound = true; // Pattern matching succeeded
                             console.log(`[RealDebrid] ✅ Found episode file: ${targetFile.path}`);
                         } else {
-                            console.log(`[RealDebrid] ⚠️ Specific episode not found, using largest file`);
+                            console.log(`[RealDebrid] ⚠️ Specific episode not found in selected files`);
+                            
+                            // 🔥 SMART FIX: For series, if episode not found, delete torrent and re-add with all files
+                            if (type === 'series' && selectedFiles.length < 5) { // Probably only 1 episode was selected
+                                console.log(`[RealDebrid] 🔄 Torrent has only ${selectedFiles.length} selected file(s), re-adding to select all episodes...`);
+                                
+                                try {
+                                    // Delete the existing torrent
+                                    await realdebrid.deleteTorrent(torrent.id);
+                                    console.log(`[RealDebrid] 🗑️ Deleted torrent ${torrent.id}`);
+                                    
+                                    // Re-add the magnet and force file selection
+                                    console.log(`[RealDebrid] ➕ Re-adding magnet to select all files...`);
+                                    const newTorrent = await realdebrid.addMagnet(magnetLink);
+                                    
+                                    // Wait for magnet conversion
+                                    let retries = 0;
+                                    let convertedTorrent = newTorrent;
+                                    while (convertedTorrent.status === 'magnet_conversion' && retries < 10) {
+                                        await new Promise(resolve => setTimeout(resolve, 1000));
+                                        convertedTorrent = await realdebrid.getTorrentInfo(newTorrent.id);
+                                        retries++;
+                                    }
+                                    
+                                    if (convertedTorrent.status === 'waiting_files_selection') {
+                                        // Select ALL video files
+                                        const allFiles = convertedTorrent.files || [];
+                                        const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+                                        const allVideoFiles = allFiles.filter(file => {
+                                            const lowerPath = file.path.toLowerCase();
+                                            return videoExtensions.some(ext => lowerPath.endsWith(ext));
+                                        });
+                                        
+                                        if (allVideoFiles.length > 0) {
+                                            const allVideoIds = allVideoFiles.map(f => f.id).join(',');
+                                            console.log(`[RealDebrid] 📦 Selecting all ${allVideoFiles.length} video files`);
+                                            await realdebrid.selectFiles(convertedTorrent.id, allVideoIds);
+                                            
+                                            // Redirect to same URL to restart the flow
+                                            console.log(`[RealDebrid] 🔄 Reloading stream with all files selected...`);
+                                            return res.redirect(302, req.url);
+                                        }
+                                    }
+                                    
+                                    console.log(`[RealDebrid] ❌ Failed to re-add torrent properly`);
+                                } catch (error) {
+                                    console.error(`[RealDebrid] ❌ Error re-adding torrent:`, error.message);
+                                }
+                            }
                         }
                     }
                     
@@ -3958,61 +3979,14 @@ export default async function handler(req, res) {
                     }
                     
                     // ✅ CACHE SUCCESS: Mark torrent as cached in DB (5-day TTL)
-                    // ✅ SAVE FILE INFO: Save file_index and file_title for future lookups
                     if (dbEnabled && infoHash) {
                         try {
-                            // Update cache status
+                            // Update cache status only (not file-specific data)
                             await dbHelper.updateRdCacheStatus([{ hash: infoHash, cached: true }]);
                             console.log(`💾 [DB] Marked ${infoHash} as RD cached (5-day TTL)`);
-                            
-                            // Save file info (fileIndex + filename) for series episodes
-                            // ONLY save if pattern matching found the correct episode (not fallback)
-                            if (type === 'series' && season && episode && targetFile && episodeMatchFound) {
-                                console.log(`💾 [DB] Attempting to save file info: type=${type}, season=${season}, episode=${episode}, targetFile.id=${targetFile.id}, targetFile.path=${targetFile.path}`);
-                                
-                                // Get imdbId from DB to save file info in 'files' table
-                                let imdbId = null;
-                                try {
-                                    const torrentInfo = await dbHelper.searchByImdbId(infoHash);
-                                    if (!torrentInfo || torrentInfo.length === 0) {
-                                        // Try finding by hash in database
-                                        const query = 'SELECT imdb_id FROM torrents WHERE info_hash = $1 LIMIT 1';
-                                        const pool = dbHelper.initDatabase();
-                                        const result = await pool.query(query, [infoHash.toLowerCase()]);
-                                        if (result.rows.length > 0) {
-                                            imdbId = result.rows[0].imdb_id;
-                                        }
-                                    } else {
-                                        imdbId = torrentInfo[0].imdb_id;
-                                    }
-                                } catch (err) {
-                                    console.warn(`⚠️ [DB] Could not retrieve imdbId for ${infoHash}:`, err.message);
-                                }
-                                
-                                const episodeInfo = imdbId ? { imdbId, season, episode } : null;
-                                
-                                const success = await dbHelper.updateTorrentFileInfo(
-                                    infoHash, 
-                                    targetFile.id, // RD file.id (1-based)
-                                    targetFile.path, // Full path with filename
-                                    episodeInfo // Pass episode info for 'files' table
-                                );
-                                
-                                if (success) {
-                                    console.log(`✅ [DB] Successfully saved file info: fileIndex=${targetFile.id}, filename=${targetFile.path.split('/').pop()}${episodeInfo ? ` (to files table: ${episodeInfo.imdbId} S${season}E${episode})` : ' (to torrents table)'}`);
-                                } else {
-                                    console.warn(`⚠️ [DB] Failed to save file info (no rows updated)`);
-                                }
-                            } else if (type === 'series' && season && episode && targetFile && !episodeMatchFound) {
-                                console.log(`⏭️  [DB] Skipping file info save: pattern matching failed (using fallback largest file)`);
-                            } else {
-                                console.log(`⏭️  [DB] Skipping file info save: type=${type}, season=${season}, episode=${episode}, hasTargetFile=${!!targetFile}`);
-                            }
                         } catch (dbErr) {
                             console.error(`❌ [DB] Error updating DB: ${dbErr.message}`, dbErr);
                         }
-                    } else {
-                        console.log(`⏭️  [DB] Skipping DB update: dbEnabled=${dbEnabled}, infoHash=${infoHash}`);
                     }
                     
                     // Check if it's a RAR archive
