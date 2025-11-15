@@ -2088,13 +2088,6 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
         // Formato compatto
         new RegExp(`\\bs${seasonStr}\\b(?!e)`, 'i'), // S27 ma non S27E
         new RegExp(`\\bs${seasonNum}\\b(?!e)`, 'i'), // S27 ma non S27E
-        // Multi-stagione che include questa stagione
-        // Es: "Stagione 1-34", "Season 1-27", "S01-S27"
-        new RegExp(`stagion[ei]\\s*\\d+\\s*[-–—]\\s*\\d*${seasonNum}`, 'i'),
-        new RegExp(`season\\s*\\d+\\s*[-–—]\\s*\\d*${seasonNum}`, 'i'),
-        new RegExp(`s\\d+\\s*[-–—]\\s*s?${seasonStr}`, 'i'),
-        new RegExp(`stagion[ei]\\s*${seasonNum}\\s*[-–—]`, 'i'), // Stagione 27-XX
-        new RegExp(`season\\s*${seasonNum}\\s*[-–—]`, 'i'), // Season 27-XX
         // Complete pack
         new RegExp(`s${seasonStr}.*(?:completa|complete|full)`, 'i'),
         new RegExp(`(?:completa|complete|full).*s${seasonStr}`, 'i')
@@ -2104,6 +2097,19 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
     if (seasonPackMatch) {
         console.log(`✅ [SEASON PACK] Match for "${torrentTitle}" contains Season ${seasonNum}`);
         return true;
+    }
+    
+    // ✅ MULTI-SEASON RANGE: Check if season is within a range (e.g., "S01-S10" includes S08)
+    // Patterns: S01-S10, Season 1-10, Stagione 1-10, S1-S10, etc.
+    const multiSeasonRangePattern = /(?:s|season|stagione)\s*(\d{1,2})\s*[-–—]\s*(?:s|season|stagione)?\s*(\d{1,2})/i;
+    const seasonRangeMatch = normalizedTorrentTitle.match(multiSeasonRangePattern);
+    if (seasonRangeMatch) {
+        const startSeason = parseInt(seasonRangeMatch[1]);
+        const endSeason = parseInt(seasonRangeMatch[2]);
+        if (seasonNum >= startSeason && seasonNum <= endSeason) {
+            console.log(`✅ [MULTI-SEASON RANGE] Match for "${torrentTitle}" S${startSeason}-S${endSeason} contains Season ${seasonNum}`);
+            return true;
+        }
     }
     
     console.log(`❌ No match for "${torrentTitle}" S${seasonStr}E${episodeStr}`);
