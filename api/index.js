@@ -2830,9 +2830,20 @@ async function handleStream(type, id, config, workerOrigin) {
                 
                 if (isNewBetter) {
                     console.log(`🔄 [Dedup] REPLACE hash ${hash.substring(0, 8)}...: "${existing.title}" -> "${result.title}" (better)`);
+                    // Preserve file_title from existing if new doesn't have it
+                    if (!result.file_title && existing.file_title) {
+                        result.file_title = existing.file_title;
+                        result.fileIndex = existing.fileIndex;
+                    }
                     bestResults.set(hash, result);
                 } else {
                     console.log(`⏭️  [Dedup] SKIP hash ${hash.substring(0, 8)}...: "${result.title}" (keeping "${existing.title}")`);
+                    // Preserve file_title from new if existing doesn't have it
+                    if (!existing.file_title && result.file_title) {
+                        existing.file_title = result.file_title;
+                        existing.fileIndex = result.fileIndex;
+                        bestResults.set(hash, existing);
+                    }
                 }
             }
         }
