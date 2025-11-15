@@ -1945,15 +1945,47 @@ async function enrichDatabaseInBackground(mediaDetails, type, season = null, epi
             }
         }
         
-        // Build search queries
+        // 🌍 Get original title from TMDB (critical for Italian content!)
+        let originalTitle = null;
+        if (mediaDetails.tmdbId) {
+            try {
+                const tmdbType = type === 'series' ? 'tv' : 'movie';
+                const tmdbUrl = `https://api.themoviedb.org/3/${tmdbType}/${mediaDetails.tmdbId}?api_key=${process.env.TMDB_KEY || '5462f78469f3d80bf520164529.4c16e4'}`;
+                const response = await fetch(tmdbUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    originalTitle = data.original_title || data.original_name;
+                    if (originalTitle && originalTitle !== mediaDetails.title) {
+                        console.log(`🌍 [Background] Found original title: "${originalTitle}"`);
+                    }
+                }
+            } catch (error) {
+                console.warn(`⚠️ [Background] Could not fetch original title:`, error.message);
+            }
+        }
+        
+        // Build search queries (ENGLISH + ORIGINAL TITLE)
         const searchQueries = [];
         if (type === 'series') {
             const seasonStr = season ? String(season).padStart(2, '0') : '';
+            // English title queries
             searchQueries.push(`${mediaDetails.title} S${seasonStr}`); // Season pack
             searchQueries.push(`${mediaDetails.title} Stagione ${season}`); // Italian
             searchQueries.push(`${mediaDetails.title} Season ${season}`); // English
+            
+            // 🌍 Original title queries (CRITICAL!)
+            if (originalTitle && originalTitle !== mediaDetails.title) {
+                searchQueries.push(`${originalTitle} S${seasonStr}`);
+                searchQueries.push(`${originalTitle} Stagione ${season}`);
+                searchQueries.push(`${originalTitle} Season ${season}`);
+            }
         } else {
             searchQueries.push(`${mediaDetails.title} ${mediaDetails.year || ''}`);
+            
+            // 🌍 Original title for movies
+            if (originalTitle && originalTitle !== mediaDetails.title) {
+                searchQueries.push(`${originalTitle} ${mediaDetails.year || ''}`);
+            }
         }
         
         console.log(`🔄 [Background] Search queries:`, searchQueries);
@@ -2867,6 +2899,7 @@ async function handleStream(type, id, config, workerOrigin) {
                     if (!existing.file_title && result.file_title) {
                         existing.file_title = result.file_title;
                         existing.fileIndex = result.fileIndex;
+                        bestResults.set(hash, existing); // Update map with modified object
                         console.log(`⏭️  [Dedup] Added file_title from skipped: ${result.file_title}`);
                     }
                 }
