@@ -3450,12 +3450,17 @@ export default async function handler(req, res) {
                     let targetFile = null;
                     
                     // ✅ PRIORITY 1: Use fileIndex from DB (precise, fastest)
-                    if (fileIndex !== null && torrent.files[fileIndex]) {
-                        targetFile = torrent.files[fileIndex];
-                        console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
+                    // Note: fileIndex from DB should match RealDebrid file.id (1-based)
+                    if (fileIndex !== null) {
+                        targetFile = (torrent.files || []).find(file => file.id === fileIndex);
+                        if (targetFile) {
+                            console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
+                        } else {
+                            console.log(`[RealDebrid] ⚠️ File with id ${fileIndex} not found in torrent`);
+                        }
                     }
                     // ✅ PRIORITY 2: For series episodes, try pattern matching
-                    else if (season && episode) {
+                    if (!targetFile && season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
                         console.log(`[RealDebrid] Looking for S${seasonStr}E${episodeStr} in pack (pattern matching)...`);
@@ -3538,10 +3543,13 @@ export default async function handler(req, res) {
                     let targetFile = null;
                     
                     // ✅ PRIORITY 1: Use fileIndex from DB (precise)
+                    // Note: fileIndex should match RealDebrid file.id (1-based)
                     if (fileIndex !== null) {
-                        targetFile = selectedFiles.find(f => f.id === fileIndex) || selectedFiles[fileIndex];
+                        targetFile = selectedFiles.find(f => f.id === fileIndex);
                         if (targetFile) {
                             console.log(`[RealDebrid] ✅ Using DB file index ${fileIndex}: ${targetFile.path}`);
+                        } else {
+                            console.log(`[RealDebrid] ⚠️ File with id ${fileIndex} not found in selected files`);
                         }
                     }
                     
