@@ -2540,8 +2540,26 @@ async function handleStream(type, id, config, workerOrigin) {
         if (dbResults.length > 0) {
             console.log(`💾 [DB] Adding ${dbResults.length} database results to aggregation...`);
             
-            // Convert DB results to scraper format
-            for (const dbResult of dbResults) {
+            // ✅ FILTER DB RESULTS for series by season/episode (like scraping results)
+            let filteredDbResults = dbResults;
+            if (type === 'series' && season && episode) {
+                const seasonNum = parseInt(season);
+                const episodeNum = parseInt(episode);
+                
+                filteredDbResults = dbResults.filter(dbResult => {
+                    return isExactEpisodeMatch(
+                        dbResult.title, 
+                        mediaDetails.titles || mediaDetails.title, 
+                        seasonNum, 
+                        episodeNum
+                    );
+                });
+                
+                console.log(`💾 [DB] Filtered to ${filteredDbResults.length}/${dbResults.length} torrents matching S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`);
+            }
+            
+            // Convert filtered DB results to scraper format
+            for (const dbResult of filteredDbResults) {
                 // Build magnet link
                 const magnetLink = `magnet:?xt=urn:btih:${dbResult.info_hash}&dn=${encodeURIComponent(dbResult.title)}`;
                 
