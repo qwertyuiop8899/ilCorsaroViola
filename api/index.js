@@ -3062,10 +3062,17 @@ async function handleStream(type, id, config, workerOrigin) {
                     // 🔥 Show "Pack Name / Episode Title" for series (user-friendly)
                     let displayTitle = result.title;
                     if (type === 'series' && season && episode && mediaDetails) {
-                        const seasonStr = String(season).padStart(2, '0');
-                        const episodeStr = String(episode).padStart(2, '0');
-                        const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
-                        displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        // Check if we have the real file_title from DB
+                        if (result.file_title) {
+                            // Use the actual filename from DB
+                            displayTitle = `${result.title}\n📂 ${result.file_title}`;
+                        } else {
+                            // Fallback to constructed title
+                            const seasonStr = String(season).padStart(2, '0');
+                            const episodeStr = String(episode).padStart(2, '0');
+                            const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
+                            displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        }
                     }
                     
                     const streamTitle = [
@@ -3147,10 +3154,17 @@ async function handleStream(type, id, config, workerOrigin) {
                     // 🔥 Show "Pack Name / Episode Title" for series (user-friendly)
                     let displayTitle = result.title;
                     if (type === 'series' && season && episode && mediaDetails) {
-                        const seasonStr = String(season).padStart(2, '0');
-                        const episodeStr = String(episode).padStart(2, '0');
-                        const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
-                        displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        // Check if we have the real file_title from DB
+                        if (result.file_title) {
+                            // Use the actual filename from DB
+                            displayTitle = `${result.title}\n📂 ${result.file_title}`;
+                        } else {
+                            // Fallback to constructed title
+                            const seasonStr = String(season).padStart(2, '0');
+                            const episodeStr = String(episode).padStart(2, '0');
+                            const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
+                            displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        }
                     }
                     
                     const streamTitle = [
@@ -3222,10 +3236,17 @@ async function handleStream(type, id, config, workerOrigin) {
                     // 🔥 Show "Pack Name / Episode Title" for series (user-friendly)
                     let displayTitle = result.title;
                     if (type === 'series' && season && episode && mediaDetails) {
-                        const seasonStr = String(season).padStart(2, '0');
-                        const episodeStr = String(episode).padStart(2, '0');
-                        const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
-                        displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        // Check if we have the real file_title from DB
+                        if (result.file_title) {
+                            // Use the actual filename from DB
+                            displayTitle = `${result.title}\n📂 ${result.file_title}`;
+                        } else {
+                            // Fallback to constructed title
+                            const seasonStr = String(season).padStart(2, '0');
+                            const episodeStr = String(episode).padStart(2, '0');
+                            const episodeTitle = `${mediaDetails.title} S${seasonStr}E${episodeStr}`;
+                            displayTitle = `${result.title}\n📂 ${episodeTitle}`;
+                        }
                     }
                     
                     const streamTitle = [
