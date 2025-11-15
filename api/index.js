@@ -3714,6 +3714,9 @@ export default async function handler(req, res) {
                 let torrent = await realdebrid.getTorrentInfo(torrentId);
                 
                 // STEP 3: Handle file selection if needed (like Torrentio _selectTorrentFiles)
+                let episodeMatchFound = false; // Track if pattern matching found the correct episode
+                let targetFile = null;
+                
                 if (torrent.status === 'waiting_files_selection') {
                     console.log(`[RealDebrid] Selecting files...`);
                     const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
@@ -3730,8 +3733,6 @@ export default async function handler(req, res) {
                         })
                         .sort((a, b) => b.bytes - a.bytes);
                     
-                    let targetFile = null;
-                    
                     // ✅ PRIORITY 1: Use fileIndex from DB (precise, fastest)
                     // Note: fileIndex from DB should match RealDebrid file.id (1-based)
                     if (fileIndex !== null) {
@@ -3743,7 +3744,6 @@ export default async function handler(req, res) {
                         }
                     }
                     // ✅ PRIORITY 2: For series episodes, try pattern matching
-                    let episodeMatchFound = false; // Track if we found the correct episode
                     if (!targetFile && season && episode) {
                         const seasonStr = String(season).padStart(2, '0');
                         const episodeStr = String(episode).padStart(2, '0');
