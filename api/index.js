@@ -2245,22 +2245,16 @@ async function handleStream(type, id, config, workerOrigin) {
         const displayTitle = Array.isArray(mediaDetails.titles) ? mediaDetails.titles[0] : mediaDetails.title;
         console.log(`✅ Found: ${displayTitle} (${mediaDetails.year})`);
 
-        // ✅ STEP 1: INITIALIZE DATABASE (if credentials provided via ENV vars)
+        // ✅ STEP 1: INITIALIZE DATABASE (always try, fallback to hardcoded credentials)
         let dbEnabled = false;
-        if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASSWORD) {
-            try {
-                dbHelper.initDatabase({
-                    host: process.env.DB_HOST,
-                    port: process.env.DB_PORT || 5432,
-                    database: process.env.DB_NAME || 'stremizio',
-                    user: process.env.DB_USER,
-                    password: process.env.DB_PASSWORD
-                });
-                dbEnabled = true;
-                console.log('💾 [DB] Database enabled for this request');
-            } catch (error) {
-                console.error('❌ [DB] Failed to initialize database:', error.message);
-            }
+        try {
+            // Call initDatabase WITHOUT parameters to use hardcoded fallback credentials
+            dbHelper.initDatabase();
+            dbEnabled = true;
+            console.log('💾 [DB] Database enabled with hardcoded credentials');
+        } catch (error) {
+            console.error('❌ [DB] Failed to initialize database:', error.message);
+            console.error('❌ [DB] Will continue without database');
         }
 
         // ✅ STEP 2: SEARCH DATABASE FIRST (if enabled)
