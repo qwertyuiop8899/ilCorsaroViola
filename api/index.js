@@ -1941,7 +1941,7 @@ async function getTMDBDetailsByImdb(imdbId, tmdbApiKey) {
 }
 
 // 🔥 NEW: Save CorsaroNero results we already found (no additional search needed!)
-async function saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper) {
+async function saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper, italianTitle = null) {
     try {
         console.log(`💾 [DB Save] Saving ${corsaroResults.length} CorsaroNero results...`);
         
@@ -1958,10 +1958,10 @@ async function saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelp
             }
             
             // 🔥 CHECK: Torrent già presente nel DB?
-            // Note: batchInsertTorrents gestisce duplicati con ON CONFLICT DO NOTHING
-            // quindi non serve check esplicito qui
+            // Note: batchInsertTorrents gestisce duplicati con ON CONFLICT DO UPDATE
+            // quindi salverà gli ID mancanti
             
-            // 🔥 OPZIONE B: Title matching con 85% threshold (usa logica di isExactEpisodeMatch)
+            // 🔥 OPZIONE B: Title matching con 85% threshold - CHECK BOTH ENGLISH & ITALIAN
             const normalizedTorrentTitle = result.title
                 .replace(/<[^>]*>/g, '')
                 .replace(/[\[.*?\]]/g, '')
@@ -1970,28 +1970,49 @@ async function saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelp
                 .trim()
                 .toLowerCase();
             
-            const normalizedSearchTitle = mediaDetails.title
-                .toLowerCase()
-                .replace(/[^\w\s]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            
-            const searchWords = normalizedSearchTitle.split(' ')
-                .filter(word => word.length > 2)
-                .filter(word => !['the', 'and', 'or', 'in', 'on', 'at', 'to', 'of', 'for'].includes(word));
-            
-            if (searchWords.length > 0 && !isShortTitle) {
+            // Helper function to check title match
+            const checkTitleMatch = (titleToCheck) => {
+                const normalizedTitle = titleToCheck
+                    .toLowerCase()
+                    .replace(/[^\w\s]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                
+                const searchWords = normalizedTitle.split(' ')
+                    .filter(word => word.length > 2)
+                    .filter(word => !['the', 'and', 'or', 'in', 'on', 'at', 'to', 'of', 'for'].includes(word));
+                
+                if (searchWords.length === 0) return { matched: true, percentage: 100, titleUsed: titleToCheck };
+                
                 const matchingWords = searchWords.filter(word => 
                     normalizedTorrentTitle.includes(word)
                 );
                 const matchPercentage = matchingWords.length / searchWords.length;
                 
-                if (matchPercentage < 0.85) {
-                    console.log(`⏭️ [DB Save] SKIP: "${result.title}" (${(matchPercentage * 100).toFixed(0)}% match with "${mediaDetails.title}", need 85%)`);
-                    continue;
+                return { 
+                    matched: matchPercentage >= 0.85, 
+                    percentage: matchPercentage * 100,
+                    titleUsed: titleToCheck
+                };
+            };
+            
+            // Try matching with English title first
+            let matchResult = checkTitleMatch(mediaDetails.title);
+            
+            // If English doesn't match and we have Italian title, try Italian
+            if (!matchResult.matched && italianTitle && italianTitle !== mediaDetails.title) {
+                matchResult = checkTitleMatch(italianTitle);
+                if (matchResult.matched) {
+                    console.log(`🇮🇹 [DB Save] Matched with Italian title: "${italianTitle}"`);
                 }
-                console.log(`✅ [DB Save] Title match: "${result.title}" (${(matchPercentage * 100).toFixed(0)}% match)`);
             }
+            
+            if (!matchResult.matched && searchWords.length > 0 && !isShortTitle) {
+                console.log(`⏭️ [DB Save] SKIP: "${result.title}" (${matchResult.percentage.toFixed(0)}% match, need 85%)`);
+                continue;
+            }
+            
+            console.log(`✅ [DB Save] Title match: "${result.title}" (${matchResult.percentage.toFixed(0)}% match with "${matchResult.titleUsed}")`);
             
             // Extract IMDB ID from title if available
             const imdbMatch = result.title.match(/tt\d{7,8}/i);
@@ -3653,7 +3674,7 @@ async function handleStream(type, id, config, workerOrigin) {
             if (corsaroResults.length > 0) {
                 setImmediate(async () => {
                     try {
-                        await saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper);
+                        await saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper, italianTitle);
                     } catch (err) {
                         console.warn(`⚠️ [Background] DB save failed (non-critical):`, err.message);
                     }
