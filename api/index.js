@@ -2906,39 +2906,61 @@ async function handleStream(type, id, config, workerOrigin) {
         let originalTitle = null;
         if (mediaDetails.tmdbId && !kitsuId) { // Solo per film/serie da TMDB
             try {
-                const detailsWithExtras = await getTMDBDetails(mediaDetails.tmdbId, mediaDetails.type, tmdbKey, 'translations');
-                console.log(`🔍 [Italian Title] TMDB response received, checking translations...`);
+                // 1. Prima chiamata: ottieni dettagli in italiano (language=it-IT)
+                const italianDetails = await getTMDBDetails(mediaDetails.tmdbId, mediaDetails.type, tmdbKey, 'external_ids', 'it-IT');
+                console.log(`🔍 [Italian Title] TMDB response with language=it-IT received`);
                 
-                if (detailsWithExtras?.translations?.translations) {
-                    console.log(`🔍 [Italian Title] Found ${detailsWithExtras.translations.translations.length} translations`);
-                    const italianTranslation = detailsWithExtras.translations.translations.find(t => t.iso_639_1 === 'it');
+                if (italianDetails) {
+                    const italianTitleFromResponse = italianDetails.title || italianDetails.name;
+                    console.log(`🔍 [Italian Title] Found title from it-IT response: "${italianTitleFromResponse}"`);
                     
-                    if (italianTranslation) {
-                        console.log(`🔍 [Italian Title] Italian translation found:`, JSON.stringify(italianTranslation.data));
-                        const foundTitle = italianTranslation.data.title || italianTranslation.data.name;
-                        // Usa il titolo italiano solo se è diverso da quello inglese per evitare falsi positivi
-                        if (foundTitle && foundTitle.toLowerCase() !== mediaDetails.title.toLowerCase()) {
-                            italianTitle = foundTitle;
-                            console.log(`🇮🇹 Found Italian title: "${italianTitle}"`);
-                        } else if (foundTitle) {
-                            console.log(`⚠️ [Italian Title] Italian title "${foundTitle}" is same as English title, skipping`);
+                    // Usa il titolo italiano se è diverso da quello inglese
+                    if (italianTitleFromResponse && italianTitleFromResponse.toLowerCase() !== mediaDetails.title.toLowerCase()) {
+                        italianTitle = italianTitleFromResponse;
+                        console.log(`🇮🇹 Found Italian title from language=it-IT: "${italianTitle}"`);
+                    } else if (italianTitleFromResponse) {
+                        console.log(`⚠️ [Italian Title] Title from it-IT "${italianTitleFromResponse}" is same as English, will try translations`);
+                    }
+                    
+                    // Salva anche l'original_title/original_name
+                    if (italianDetails.original_title || italianDetails.original_name) {
+                        const foundOriginalTitle = italianDetails.original_title || italianDetails.original_name;
+                        if (foundOriginalTitle && foundOriginalTitle.toLowerCase() !== mediaDetails.title.toLowerCase()) {
+                            originalTitle = foundOriginalTitle;
+                            console.log(`� Found original title: "${originalTitle}"`);
+                        }
+                    }
+                }
+                
+                // 2. Fallback: se non abbiamo trovato il titolo italiano, prova con translations
+                if (!italianTitle) {
+                    console.log(`🔍 [Italian Title] Trying translations as fallback...`);
+                    const detailsWithTranslations = await getTMDBDetails(mediaDetails.tmdbId, mediaDetails.type, tmdbKey, 'translations', 'en-US');
+                    
+                    if (detailsWithTranslations?.translations?.translations) {
+                        console.log(`🔍 [Italian Title] Found ${detailsWithTranslations.translations.translations.length} translations`);
+                        const italianTranslation = detailsWithTranslations.translations.translations.find(t => t.iso_639_1 === 'it');
+                        
+                        if (italianTranslation) {
+                            console.log(`🔍 [Italian Title] Italian translation found:`, JSON.stringify(italianTranslation.data));
+                            const foundTitle = italianTranslation.data.title || italianTranslation.data.name;
+                            if (foundTitle && foundTitle.toLowerCase() !== mediaDetails.title.toLowerCase()) {
+                                italianTitle = foundTitle;
+                                console.log(`🇮� Found Italian title from translations: "${italianTitle}"`);
+                            }
+                        } else {
+                            console.log(`⚠️ [Italian Title] No Italian (it) translation found in translations array`);
                         }
                     } else {
-                        console.log(`⚠️ [Italian Title] No Italian (it) translation found`);
+                        console.log(`⚠️ [Italian Title] No translations data available`);
                     }
-                } else {
-                    console.log(`⚠️ [Italian Title] No translations data in TMDB response`);
                 }
-
-                if (detailsWithExtras && (detailsWithExtras.original_title || detailsWithExtras.original_name)) {
-                    const foundOriginalTitle = detailsWithExtras.original_title || detailsWithExtras.original_name;
-                    if (foundOriginalTitle && foundOriginalTitle.toLowerCase() !== mediaDetails.title.toLowerCase()) {
-                        originalTitle = foundOriginalTitle;
-                        console.log(`🌍 Found original title: "${originalTitle}"`);
-                    }
+                
+                if (!italianTitle) {
+                    console.log(`⚠️ [Italian Title] Could not find Italian title for "${mediaDetails.title}"`);
                 }
             } catch (e) {
-                console.warn("⚠️ Could not fetch extra titles from TMDB.", e.message);
+                console.warn("⚠️ Could not fetch Italian title from TMDB:", e.message);
             }
         }
         // --- FINE MODIFICA ---
@@ -4107,9 +4129,9 @@ async function handleStream(type, id, config, workerOrigin) {
 }
 
 // ✅ TMDB helper functions (keeping existing but adding better error handling)
-async function getTMDBDetails(tmdbId, type = 'movie', tmdbApiKey, append = 'external_ids') {
+async function getTMDBDetails(tmdbId, type = 'movie', tmdbApiKey, append = 'external_ids', language = 'it-IT') {
     try {
-        const response = await fetch(`${TMDB_BASE_URL}/${type}/${tmdbId}?api_key=${tmdbApiKey}&append_to_response=${append}`);
+        const response = await fetch(`${TMDB_BASE_URL}/${type}/${tmdbId}?api_key=${tmdbApiKey}&language=${language}&append_to_response=${append}`);
         if (!response.ok) throw new Error(`TMDB API error: ${response.status}`);
         return await response.json();
     } catch (error) {
