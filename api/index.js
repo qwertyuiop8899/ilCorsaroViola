@@ -2590,8 +2590,8 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
         // Check for episode range (e.g., "E144-195", "144-195", "E01-30")
         // Common patterns: SxxE##-## or just ##-##
         const rangePatterns = [
-            /(?:s\d{1,2})?e(\d{1,3})\s*[-–—]\s*(\d{1,3})/i,  // S01E144-195 or E144-195
-            /\b(\d{1,3})\s*[-–—]\s*(\d{1,3})\b/              // 144-195
+            /(?:s\d{1,2})?e(\d{1,3})\s*[-–—]\s*e?(\d{1,3})(?!\d)/i,  // S01E144-195 or E144-E195 or E144-195 (not followed by more digits)
+            /\b(\d{1,3})\s*[-–—]\s*(\d{1,3})(?!\d)/              // 144-195 (not followed by more digits)
         ];
         
         for (const pattern of rangePatterns) {
@@ -2600,12 +2600,22 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
                 const startEp = parseInt(match[1]);
                 const endEp = parseInt(match[2]);
                 
-                // Validate this is actually an episode range (not year, not resolution)
-                if (startEp > 0 && endEp > startEp && endEp <= 9999) {
-                    if (episodeNum >= startEp && episodeNum <= endEp) {
-                        console.log(`✅ [ANIME RANGE] "${torrentTitle.substring(0, 80)}" contains Ep.${startEp}-${endEp} (includes ${episodeNum})`);
-                        return true;
-                    }
+                // ✅ STRICT VALIDATION: 
+                // 1. Start must be less than end
+                // 2. Range must be reasonable (< 200 episodes, typical for anime packs)
+                // 3. End must be greater than 0
+                // 4. For anime, typical ranges are 1-50, 51-100, etc. Not 1-301!
+                const rangeSize = endEp - startEp;
+                const isValidRange = (
+                    startEp > 0 && 
+                    endEp > startEp && 
+                    endEp <= 9999 &&
+                    rangeSize <= 200  // Max 200 episodes per pack (catches 1-301 false matches)
+                );
+                
+                if (isValidRange && episodeNum >= startEp && episodeNum <= endEp) {
+                    console.log(`✅ [ANIME RANGE] "${torrentTitle.substring(0, 80)}" contains Ep.${startEp}-${endEp} (includes ${episodeNum})`);
+                    return true;
                 }
             }
         }
