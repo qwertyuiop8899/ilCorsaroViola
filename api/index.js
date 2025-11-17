@@ -2336,20 +2336,14 @@ async function getTMDbFromMAL(malId) {
         
         console.log(`🔍 [MAL→TMDb] API Response:`, JSON.stringify(data).substring(0, 500));
         
-        if (!data || data.length === 0) {
+        if (!data || typeof data !== 'object') {
             console.log(`⚠️ [MAL→TMDb] No TMDb mapping found for MAL ${malId}`);
             return null;
         }
         
-        // Extract IDs from first result
-        const result = data[0];
-        if (!result) {
-            console.log(`⚠️ [MAL→TMDb] First result is undefined for MAL ${malId}`);
-            return null;
-        }
-        
-        const tmdbId = result.themoviedb || null;
-        const imdbId = result.imdb || null;
+        // API returns single object (not array)
+        const tmdbId = data.themoviedb || null;
+        const imdbId = data.imdb || null;
         
         if (tmdbId || imdbId) {
             console.log(`✅ [MAL→TMDb] MAL ${malId} → TMDb ${tmdbId}, IMDb ${imdbId}`);
@@ -3955,9 +3949,9 @@ async function handleStream(type, id, config, workerOrigin) {
         console.log(`⚡ ${cachedCount} cached streams available for instant playback`);
         
         // 🔥 BACKGROUND TASK: Save CorsaroNero results to DB (use results we already have!)
-        console.log(`🔍 [Background Check] dbEnabled=${dbEnabled}, mediaDetails=${!!mediaDetails}, tmdbId=${mediaDetails?.tmdbId}, imdbId=${mediaDetails?.imdbId}`);
+        console.log(`🔍 [Background Check] dbEnabled=${dbEnabled}, mediaDetails=${!!mediaDetails}, tmdbId=${mediaDetails?.tmdbId}, imdbId=${mediaDetails?.imdbId}, kitsuId=${mediaDetails?.kitsuId}`);
         
-        if (dbEnabled && mediaDetails && (mediaDetails.tmdbId || mediaDetails.imdbId)) {
+        if (dbEnabled && mediaDetails && (mediaDetails.tmdbId || mediaDetails.imdbId || mediaDetails.kitsuId)) {
             // Filter only CorsaroNero results from the results we already found
             const corsaroResults = results.filter(r => r.source === 'CorsaroNero');
             console.log(`🚀 [Background] Saving ${corsaroResults.length} CorsaroNero results to DB`);
@@ -3972,7 +3966,7 @@ async function handleStream(type, id, config, workerOrigin) {
                 });
             }
         } else {
-            console.log(`⏭️  [Background] Enrichment skipped (dbEnabled=${dbEnabled}, hasMediaDetails=${!!mediaDetails}, hasIds=${!!(mediaDetails?.tmdbId || mediaDetails?.imdbId)})`);
+            console.log(`⏭️  [Background] Enrichment skipped (dbEnabled=${dbEnabled}, hasMediaDetails=${!!mediaDetails}, hasIds=${!!(mediaDetails?.tmdbId || mediaDetails?.imdbId || mediaDetails?.kitsuId)})`);
         }
         
         return { 
