@@ -614,6 +614,52 @@ async function searchByTitleFTS(cleanedTitle, type = null, year = null) {
   }
 }
 
+/**
+ * Update torrents with completed IDs (auto-repair)
+ * @param {string} infoHash - Info hash of torrent to update
+ * @param {string|null} imdbId - IMDb ID to set (if missing)
+ * @param {number|null} tmdbId - TMDb ID to set (if missing)
+ * @returns {Promise<boolean>} Success status
+ */
+async function updateTorrentsWithIds(infoHash, imdbId, tmdbId) {
+  if (!pool) throw new Error('Database not initialized');
+  
+  try {
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    if (imdbId) {
+      updates.push(`imdb_id = $${paramIndex++}`);
+      params.push(imdbId);
+    }
+    
+    if (tmdbId) {
+      updates.push(`tmdb_id = $${paramIndex++}`);
+      params.push(tmdbId);
+    }
+    
+    if (updates.length === 0) {
+      console.log(`💾 [DB] No IDs to update for ${infoHash}`);
+      return false;
+    }
+    
+    params.push(infoHash);
+    const query = `
+      UPDATE torrents 
+      SET ${updates.join(', ')}
+      WHERE info_hash = $${paramIndex}
+    `;
+    
+    const result = await pool.query(query, params);
+    console.log(`💾 [DB] Updated ${result.rowCount} torrent(s) with completed IDs`);
+    return result.rowCount > 0;
+  } catch (error) {
+    console.error(`❌ [DB] Error updating IDs:`, error.message);
+    return false;
+  }
+}
+
 module.exports = {
   initDatabase,
   searchByImdbId,
@@ -627,5 +673,6 @@ module.exports = {
   updateTorrentFileInfo,
   deleteFileInfo,
   getImdbIdByHash,
+  updateTorrentsWithIds,
   closeDatabase
 };
