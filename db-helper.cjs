@@ -339,7 +339,17 @@ async function batchInsertTorrents(torrents) {
             seeders, imdb_id, tmdb_id, cached_rd, last_cached_check, file_index
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          ON CONFLICT (info_hash) DO NOTHING
+          ON CONFLICT (info_hash) DO UPDATE SET
+            imdb_id = COALESCE(EXCLUDED.imdb_id, torrents.imdb_id),
+            tmdb_id = COALESCE(EXCLUDED.tmdb_id, torrents.tmdb_id),
+            seeders = GREATEST(EXCLUDED.seeders, torrents.seeders),
+            cached_rd = COALESCE(EXCLUDED.cached_rd, torrents.cached_rd),
+            last_cached_check = CASE 
+              WHEN EXCLUDED.last_cached_check IS NOT NULL 
+              THEN GREATEST(EXCLUDED.last_cached_check, COALESCE(torrents.last_cached_check, EXCLUDED.last_cached_check))
+              ELSE torrents.last_cached_check
+            END,
+            file_index = COALESCE(EXCLUDED.file_index, torrents.file_index)
         `;
         
         const values = [
@@ -527,17 +537,95 @@ async function getImdbIdByHash(infoHash) {
   }
 }
 
+/**
+ * Search torrents by title using PostgreSQL Full-Text Search (FTS)
+ * This is a fallback when ID-based search returns no results
+ * @param {string} cleanedTitle - Cleaned title for search (from cleanTitleForSearch)
+ * @param {string} type - Media type: 'movie' or 'series'
+ * @param {number} year - Optional year for filtering (±1 tolerance)
+ * @returns {Promise<Array>} Array of torrent objects ordered by relevance
+ */
+async function searchByTitleFTS(cleanedTitle, type = null, year = null) {
+  if (!pool) throw new Error('Database not initialized');
+  
+  try {
+    console.log(`💾 [DB FTS] Searching: "${cleanedTitle}"${type ? ` (${type})` : ''}${year ? ` year=${year}` : ''}`);
+    
+    let query = `
+      SELECT 
+        info_hash, 
+        provider, 
+        title, 
+        size, 
+        type, 
+        seeders, 
+        imdb_id, 
+        tmdb_id,
+        cached_rd,
+        last_cached_check,
+        file_index,
+        file_title,
+        ts_rank(title_vector, plainto_tsquery('italian', $1)) as rank
+      FROM torrents 
+      WHERE title_vector @@ plainto_tsquery('italian', $1)
+    `;
+    
+    const params = [cleanedTitle];
+    let paramIndex = 2;
+    
+    // Filter by type if provided
+    if (type) {
+      query += ` AND type = $${paramIndex}`;
+      params.push(type);
+      paramIndex++;
+    }
+    
+    // Filter by year with ±1 tolerance if provided
+    if (year) {
+      query += ` AND (
+        title ~* '\\m${year}\\M' OR 
+        title ~* '\\m${year-1}\\M' OR 
+        title ~* '\\m${year+1}\\M'
+      )`;
+    }
+    
+    // Order by relevance (rank) and seeders
+    query += ' ORDER BY rank DESC, cached_rd DESC NULLS LAST, seeders DESC LIMIT 50';
+    
+    const result = await pool.query(query, params);
+    console.log(`💾 [DB FTS] Found ${result.rows.length} torrents (rank threshold applied)`);
+    
+    // Log top 3 results with rank for debugging
+    if (result.rows.length > 0) {
+      console.log(`💾 [DB FTS] Top 3 results:`);
+      result.rows.slice(0, 3).forEach((row, i) => {
+        console.log(`   ${i+1}. ${row.title} (rank: ${row.rank.toFixed(4)}, seeders: ${row.seeders})`);
+      });
+    }
+    
+    return result.rows;
+  } catch (error) {
+    console.error(`❌ [DB FTS] Error:`, error.message);
+    // If FTS column doesn't exist yet, return empty array (migration not run)
+    if (error.message.includes('title_vector')) {
+      console.warn(`⚠️ [DB FTS] title_vector column not found. Run migration: migrations/001_add_fts_support.sql`);
+    }
+    return [];
+  }
+}
+
 module.exports = {
   initDatabase,
   searchByImdbId,
   searchByTmdbId,
   searchEpisodeFiles,
+  searchByTitleFTS,
   insertTorrent,
   updateRdCacheStatus,
   getRdCachedAvailability,
   batchInsertTorrents,
   updateTorrentFileInfo,
   deleteFileInfo,
-  getImdbIdByHash, // NEW
+  getImdbIdByHash,
   closeDatabase
 };
