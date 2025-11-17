@@ -2334,6 +2334,8 @@ async function getTMDbFromMAL(malId) {
         
         const data = await response.json();
         
+        console.log(`🔍 [MAL→TMDb] API Response:`, JSON.stringify(data).substring(0, 500));
+        
         if (!data || data.length === 0) {
             console.log(`⚠️ [MAL→TMDb] No TMDb mapping found for MAL ${malId}`);
             return null;
@@ -2341,6 +2343,11 @@ async function getTMDbFromMAL(malId) {
         
         // Extract IDs from first result
         const result = data[0];
+        if (!result) {
+            console.log(`⚠️ [MAL→TMDb] First result is undefined for MAL ${malId}`);
+            return null;
+        }
+        
         const tmdbId = result.themoviedb || null;
         const imdbId = result.imdb || null;
         
@@ -2380,6 +2387,7 @@ async function getKitsuDetails(kitsuId) {
         const year = attributes.startDate ? new Date(attributes.startDate).getFullYear() : null;
 
         const mediaDetails = {
+            title: attributes.canonicalTitle || attributes.titles.en || 'Unknown', // ✅ Aggiungi title singolo
             titles: Array.from(titles), // Return an array of possible titles
             year: year,
             type: 'series',
@@ -2985,12 +2993,13 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         // ✅ STEP 4: If still no results, try FULL-TEXT SEARCH (FTS) as fallback
-        if (dbEnabled && dbResults.length === 0) {
+        if (dbEnabled && dbResults.length === 0 && mediaDetails && mediaDetails.title) {
             console.log(`💾 [DB] No results by ID. Trying Full-Text Search (FTS)...`);
             
             // Import cleanTitleForSearch for title cleaning
             // Note: We need to replicate the logic here since it's not exported from daily-scraper
             const cleanTitleForFTS = (title) => {
+                if (!title) return '';
                 let cleaned = title;
                 cleaned = cleaned.replace(/\.(mkv|mp4|avi|mov)$/gi, '');
                 cleaned = cleaned.replace(/^\s*[\[\(]\d{4}[\]\)]\s*/g, '');
