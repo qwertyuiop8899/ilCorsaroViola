@@ -2530,15 +2530,21 @@ async function fetchUIndexData(searchQuery, type = 'movie', italianTitle = null)
 function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episodeNum, isAnime = false) {
     if (!torrentTitle || !showTitleOrTitles) return false;
     
-    torrentTitle = torrentTitle.replace(/<[^>]*>/g, '')
-        .replace(/[\[.*?\]]/g, '')
+    // ✅ STEP 1: Light cleaning (keep dots and dashes for episode ranges!)
+    const lightCleanedTitle = torrentTitle
+        .replace(/<[^>]*>/g, '')
+        .replace(/[\[\]]/g, '')
         .replace(/\(.*?\)/g, '')
+        .trim();
+    
+    // ✅ STEP 2: Heavy cleaning for title matching only
+    const normalizedTorrentTitle = lightCleanedTitle.toLowerCase()
         .replace(/\s+/g, ' ')
         .trim();
     
-    const normalizedTorrentTitle = torrentTitle.toLowerCase();
     const titlesToCheck = Array.isArray(showTitleOrTitles) ? showTitleOrTitles : [showTitleOrTitles];
 
+    // ✅ STEP 3: Check if title matches
     const titleIsAMatch = titlesToCheck.some(showTitle => {
         const normalizedShowTitle = showTitle.toLowerCase()
             .replace(/[^\w\s]/g, ' ')
@@ -2564,57 +2570,55 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
     }
     
     if (isAnime) {
+        // ✅ ANIME: Match episode ranges on LIGHT cleaned title (preserves dots/dashes)
         // For anime, look for absolute episode numbers (no season)
         // Patterns to match:
         // 1. Single episode: " 163 ", " - 163", "E163", etc.
         // 2. Episode range: "E144-195", "144-195", etc.
         
-        console.log(`🔍 [ANIME DEBUG] Normalized title: "${normalizedTorrentTitle}", Episode: ${episodeNum}`);
-        
         const episodeStr = String(episodeNum).padStart(2, '0');
         const episodeNumStr = String(episodeNum);
         
-        // Check for single episode match
+        // Check for single episode match on light cleaned title
         const animePatterns = [
-            new RegExp(`\\b${episodeNum}\\b(?!p|i|\\.|bit)`), // e.g., " 163 " but not "1080p" or "7.1" or "10bit"
-            new RegExp(`\\b${episodeStr}\\b(?!p|i|\\.|bit)`),
-            new RegExp(`\\s-\\s${episodeStr}\\b`),
-            new RegExp(`\\be${episodeStr}\\b`, 'i'),
-            new RegExp(`\\be${episodeNumStr}\\b`, 'i')
+            new RegExp(`\\b${episodeNum}\\b(?!p|i|\\.|bit)`, 'i'), // e.g., " 163 " but not "1080p" or "7.1" or "10bit"
+            new RegExp(`\\be${episodeStr}\\b(?!\\d)`, 'i'),  // E20 not E201
+            new RegExp(`\\be${episodeNumStr}\\b(?!\\d)`, 'i'), // E163 not E1630
+            new RegExp(`\\s-\\s${episodeStr}\\b`, 'i'),
+            new RegExp(`\\s-\\s${episodeNumStr}\\b`, 'i')
         ];
         
-        const singleMatch = animePatterns.some(pattern => pattern.test(normalizedTorrentTitle));
+        const singleMatch = animePatterns.some(pattern => pattern.test(lightCleanedTitle));
         if (singleMatch) {
             console.log(`✅ [ANIME] Episode match for "${torrentTitle.substring(0, 80)}" Ep.${episodeNum}`);
             return true;
         }
         
-        // Check for episode range (e.g., "E144-195", "144-195", "E01-30", "E1001-1050")
+        // ✅ Check for episode range (e.g., "E144-195", "144-195", "E01-30", "E1001-1050")
+        // CRITICAL: Use light cleaned title that PRESERVES dots/dashes!
         // Common patterns: SxxE##-## or just ##-##
-        // Support up to 4 digits (9999) for long-running anime like One Piece
-        // CRITICAL: Use negative lookahead AND lookbehind to avoid matching years like "144-1951999"
         const rangePatterns = [
-            /(?:s\d{1,2})?e(\d{1,4})\s*[-–—]\s*e?(\d{1,4})(?=[^\d]|$)/i,  // S01E144-195 or E1001-1050 (followed by non-digit or end)
-            /(?<![.\d])(\d{1,4})\s*[-–—]\s*(\d{1,4})(?=[^\d]|$)/         // 144-195 or 1001-1050 (not preceded/followed by digit/dot)
+            /(?:s\d{1,2})?[eE](\d{1,4})\s*[-–—]\s*(?:[eE])?(\d{1,4})/g,  // S01E144-195 or E1001-E1050
+            /(?<!\d)(\d{1,4})\s*[-–—]\s*(\d{1,4})(?!\d)/g                // 144-195 (not part of year like 1999-2011)
         ];
         
         for (const pattern of rangePatterns) {
-            const matches = normalizedTorrentTitle.matchAll(new RegExp(pattern, 'g'));
+            const matches = lightCleanedTitle.matchAll(pattern);
             for (const match of matches) {
                 const startEp = parseInt(match[1]);
                 const endEp = parseInt(match[2]);
                 
                 // ✅ STRICT VALIDATION: 
                 // 1. Start must be less than end
-                // 2. Range must be reasonable (≤300 episodes per pack, typical for anime)
-                // 3. End must be greater than 0
-                // 4. Support up to 9999 episodes for very long anime
+                // 2. Range must be reasonable (≤300 episodes per pack)
+                // 3. Reject year ranges (e.g., 1999-2011)
                 const rangeSize = endEp - startEp;
                 const isValidRange = (
                     startEp > 0 && 
                     endEp > startEp && 
                     endEp <= 9999 &&
-                    rangeSize <= 300  // Max 300 episodes per pack (typical: 1-50, 51-100, 1001-1100, etc.)
+                    rangeSize <= 300 &&  // Max 300 episodes per pack
+                    startEp < 1900        // Not a year!
                 );
                 
                 if (isValidRange && episodeNum >= startEp && episodeNum <= endEp) {
@@ -3510,7 +3514,7 @@ async function handleStream(type, id, config, workerOrigin) {
                 console.log('⚠️ Exact filtering removed all results, using broader match (NON-ANIME only)');
                 filteredResults = results.slice(0, Math.min(10, results.length));
             } else if (filteredResults.length === 0 && kitsuId) {
-                console.log('❌ [ANIME] No packs found containing episode ${episode}. Returning empty results.');
+                console.log(`❌ [ANIME] No packs found containing episode ${episode}. Returning empty results.`);
             }
         } else if (type === 'movie') {
             const originalCount = filteredResults.length;
