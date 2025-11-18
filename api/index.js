@@ -4166,7 +4166,7 @@ async function handleStream(type, id, config, workerOrigin) {
                     type: type,
                     year: mediaDetails.year
                 }),
-                signal: AbortSignal.timeout(2000)
+                signal: AbortSignal.timeout(15000)
             })
             .then(response => {
                 if (response.ok) {
