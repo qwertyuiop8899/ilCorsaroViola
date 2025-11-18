@@ -1,4 +1,4 @@
-// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel) 
+// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)
 
 import * as cheerio from 'cheerio';
 import { promises as fs } from 'fs';
@@ -3502,6 +3502,9 @@ async function handleStream(type, id, config, workerOrigin) {
                 // Build magnet link
                 const magnetLink = `magnet:?xt=urn:btih:${dbResult.info_hash}&dn=${encodeURIComponent(torrentTitle)}`;
                 
+                // DEBUG: Log what we're adding
+                console.log(`🔍 [DB ADD] Adding: hash=${dbResult.info_hash.substring(0, 8)}, title="${torrentTitle.substring(0, 50)}...", size=${formatBytes(torrentSize || 0)}, seeders=${dbResult.seeders || 0}`);
+                
                 // Add to raw results with high priority
                 allRawResults.push({
                     title: torrentTitle,
@@ -3519,8 +3522,8 @@ async function handleStream(type, id, config, workerOrigin) {
                 });
                 
                 // DEBUG: Log file info from DB
-                if (dbResult.file_index || fileName) {
-                    console.log(`🔍 [DB DEBUG] Torrent "${torrentTitle}" has file info: fileIndex=${dbResult.file_index}, file_title=${fileName}`);
+                if (dbResult.file_index !== null && dbResult.file_index !== undefined) {
+                    console.log(`   📁 Has file: fileIndex=${dbResult.file_index}, file_title=${fileName}`);
                 }
             }
             
@@ -3536,9 +3539,12 @@ async function handleStream(type, id, config, workerOrigin) {
 
             if (!bestResults.has(hash)) {
                 bestResults.set(hash, result);
-                console.log(`✅ [Dedup] NEW hash: ${hash.substring(0, 8)}... -> ${result.title}`);
+                console.log(`✅ [Dedup] NEW hash: ${hash.substring(0, 8)}... -> ${result.title.substring(0, 60)}... (${result.size}, ${result.seeders} seeds)`);
             } else {
                 const existing = bestResults.get(hash);
+                console.log(`🔍 [Dedup] DUPLICATE hash: ${hash.substring(0, 8)}... comparing "${existing.title.substring(0, 50)}..." vs "${result.title.substring(0, 50)}..."`);
+                console.log(`   Existing: size=${existing.size}, seeders=${existing.seeders}, fileIndex=${existing.fileIndex}`);
+                console.log(`   New: size=${result.size}, seeders=${result.seeders}, fileIndex=${result.fileIndex}`);
                 const existingLangInfo = getLanguageInfo(existing.title, italianTitle);
 
                 let isNewBetter = false;
@@ -4162,7 +4168,7 @@ async function handleStream(type, id, config, workerOrigin) {
                         imdbId: mediaDetails.imdbId,
                         tmdbId: mediaDetails.tmdbId,
                         italianTitle: italianTitle,
-                        originalTitle: originalTitle || mediaDetails.title, // Use English title as fallback
+                        originalTitle: originalTitle || mediaDetails.title,
                         type: type,
                         year: mediaDetails.year
                     }),
