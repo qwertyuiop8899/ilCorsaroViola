@@ -3362,12 +3362,6 @@ async function handleStream(type, id, config, workerOrigin) {
         // --- NUOVA LOGICA DI AGGREGAZIONE E DEDUPLICAZIONE ---
         const allRawResults = [];
         
-        // ✅ Add DB/FTS results first (if any)
-        if (skipLiveSearch) {
-            console.log(`✅ [3-Tier] Adding ${dbResults.length} DB/FTS results to processing pipeline`);
-            allRawResults.push(...dbResults);
-        }
-        
         const searchType = kitsuId ? 'anime' : type;
         const TOTAL_RESULTS_TARGET = 50; // Stop searching when we have enough results to avoid excessive subrequests.
         let totalQueries = 0;
@@ -3466,6 +3460,8 @@ async function handleStream(type, id, config, workerOrigin) {
                 await new Promise(resolve => setTimeout(resolve, 250));
             }
         }
+        
+        } // Close if (!skipLiveSearch) - end of live search block
 
         console.log(`🔎 Found a total of ${allRawResults.length} raw results from all sources. Performing smart deduplication...`);
 
@@ -4141,8 +4137,6 @@ async function handleStream(type, id, config, workerOrigin) {
         
         console.log(`🎉 Successfully processed ${streams.length} streams in ${totalTime}ms`);
         console.log(`⚡ ${cachedCount} cached streams available for instant playback`);
-        
-        } // Close if (dbResults.length === 0) - end of live search block
         
         // 🔥 BACKGROUND TASK: Save CorsaroNero results + enrichment (ALWAYS, for all tiers)
         console.log(`🔍 [Background Check] dbEnabled=${dbEnabled}, mediaDetails=${!!mediaDetails}, tmdbId=${mediaDetails?.tmdbId}, imdbId=${mediaDetails?.imdbId}, kitsuId=${mediaDetails?.kitsuId}`);
