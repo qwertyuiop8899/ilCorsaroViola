@@ -1,4 +1,4 @@
-// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)
+// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)  
 
 import * as cheerio from 'cheerio';
 import { promises as fs } from 'fs';
