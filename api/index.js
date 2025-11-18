@@ -4150,13 +4150,9 @@ async function handleStream(type, id, config, workerOrigin) {
                 console.log(`🚀 [Background] Saving ${corsaroResults.length} CorsaroNero results to DB`);
                 
                 if (corsaroResults.length > 0) {
-                    setImmediate(async () => {
-                        try {
-                            await saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper, italianTitle);
-                        } catch (err) {
-                            console.warn(`⚠️ [Background] DB save failed (non-critical):`, err.message);
-                        }
-                    });
+                    // Fire and forget - don't wait
+                    saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper, italianTitle)
+                        .catch(err => console.warn(`⚠️ [Background] DB save failed (non-critical):`, err.message));
                 }
             } else {
                 console.log(`⏭️  [Background] Skipping CorsaroNero save (used DB/FTS results - Tier 1/2)`);
@@ -4166,16 +4162,16 @@ async function handleStream(type, id, config, workerOrigin) {
             console.log(`🔍 [Enrichment Check] italianTitle="${italianTitle}", mediaDetails.title="${mediaDetails.title}", match=${italianTitle === mediaDetails.title}`);
             if (italianTitle && italianTitle !== mediaDetails.title) {
                 console.log(`✅ [Background] Scheduling enrichment with Italian title "${italianTitle}" (type: ${type})`);
-                setImmediate(async () => {
-                    try {
-                        console.log(`🔄 [Background] Starting enrichDatabaseInBackground NOW...`);
-                        await enrichDatabaseInBackground(mediaDetails, type, season, episode, dbHelper, italianTitle, originalTitle);
-                        console.log(`✅ [Background] enrichDatabaseInBackground completed successfully`);
-                    } catch (err) {
+                // Fire and forget - start enrichment without waiting
+                enrichDatabaseInBackground(mediaDetails, type, season, episode, dbHelper, italianTitle, originalTitle)
+                    .then(() => console.log(`✅ [Background] enrichDatabaseInBackground completed successfully`))
+                    .catch(err => {
                         console.warn(`⚠️ [Background] Enrichment failed (non-critical):`, err.message);
                         console.error(`❌ [Background] Full error:`, err);
-                    }
-                });
+                    });
+                
+                // Small delay to let enrichment start before response (50ms)
+                await new Promise(resolve => setTimeout(resolve, 50));
             } else {
                 console.log(`⏭️  [Background] Enrichment skipped (no Italian title difference)`);
             }
