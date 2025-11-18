@@ -3034,11 +3034,29 @@ async function handleStream(type, id, config, workerOrigin) {
         if (!Array.isArray(mediaDetails.titles)) {
             const allTitles = new Set();
             // Always include the main English title
-            if (mediaDetails.title) allTitles.add(mediaDetails.title);
+            if (mediaDetails.title) {
+                allTitles.add(mediaDetails.title);
+                // If title contains ":", also add the part before it (e.g., "Suburra: Blood on Rome" → "Suburra")
+                if (mediaDetails.title.includes(':')) {
+                    allTitles.add(mediaDetails.title.split(':')[0].trim());
+                }
+            }
             // Add Italian title if found
-            if (italianTitle && italianTitle !== mediaDetails.title) allTitles.add(italianTitle);
+            if (italianTitle && italianTitle !== mediaDetails.title) {
+                allTitles.add(italianTitle);
+                // If Italian title contains ":", also add the part before it
+                if (italianTitle.includes(':')) {
+                    allTitles.add(italianTitle.split(':')[0].trim());
+                }
+            }
             // Add original title if different
-            if (originalTitle && originalTitle !== mediaDetails.title && originalTitle !== italianTitle) allTitles.add(originalTitle);
+            if (originalTitle && originalTitle !== mediaDetails.title && originalTitle !== italianTitle) {
+                allTitles.add(originalTitle);
+                // If original title contains ":", also add the part before it
+                if (originalTitle.includes(':')) {
+                    allTitles.add(originalTitle.split(':')[0].trim());
+                }
+            }
             
             mediaDetails.titles = Array.from(allTitles);
             console.log(`📝 Built titles array: ${JSON.stringify(mediaDetails.titles)}`);
