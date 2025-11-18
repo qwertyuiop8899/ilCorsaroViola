@@ -3329,6 +3329,58 @@ async function handleStream(type, id, config, workerOrigin) {
         const searchQueries = [];
         let finalSearchQueries = []; // Declare here, outside the conditional blocks
         
+        // Helper function to generate queries for a given title (SERIES ONLY)
+        const addQueriesForTitle = (title, label = '') => {
+            if (!title || type !== 'series' || kitsuId) return;
+            
+            const seasonStr = String(season).padStart(2, '0');
+            const episodeStr = String(episode).padStart(2, '0');
+            
+            // Extract short version (before ":" if present)
+            const shortTitle = title.includes(':') ? title.split(':')[0].trim() : title;
+            
+            // 1. BASE QUERIES (short version - higher priority)
+            searchQueries.push(`${shortTitle} S${seasonStr}E${episodeStr}`);  // Episode specific
+            searchQueries.push(`${shortTitle} S${seasonStr}`);                 // Season pack
+            searchQueries.push(`${shortTitle} Stagione ${season}`);            // Italian word
+            searchQueries.push(`${shortTitle} Season ${season}`);              // English word
+            searchQueries.push(`${shortTitle} Complete`);                      // Complete pack
+            searchQueries.push(`${shortTitle} S01`);                           // S01 packs
+            
+            // 2. COMPLETE QUERIES WITH CODES (full title with ":")
+            if (title !== shortTitle) {
+                searchQueries.push(`${title} S${seasonStr}E${episodeStr}`);
+                searchQueries.push(`${title} S${seasonStr}`);
+            }
+            
+            // 3. COMPLETE QUERIES WITH WORDS (full title with "Stagione/Season")
+            if (title !== shortTitle) {
+                searchQueries.push(`${title} Stagione ${season}`);
+                searchQueries.push(`${title} Season ${season}`);
+            }
+            
+            // 4. COMPLETE TITLE ONLY (for complete packs)
+            if (title !== shortTitle) {
+                searchQueries.push(title);
+            }
+            
+            // 5. NORMALIZED QUERIES (without ":" but with spaces)
+            if (title !== shortTitle && title.includes(':')) {
+                const normalized = title.replace(/:/g, '');
+                searchQueries.push(`${normalized} S${seasonStr}`);
+                searchQueries.push(`${normalized} S${seasonStr}E${episodeStr}`);
+            }
+            
+            // 6. Short title alone (only if really short)
+            const titleWords = shortTitle.trim().split(/\s+/);
+            const isShortTitle = titleWords.length === 1 && titleWords[0].length <= 6;
+            if (isShortTitle) {
+                searchQueries.push(shortTitle);
+            }
+            
+            if (label) console.log(`📝 Added queries for ${label}: "${title}"`);
+        };
+        
         // Always build queries (needed for enrichment even when skipping live search)
         console.log(`📝 [Queries] Building search queries for enrichment and live search...`);
         if (type === 'series') {
@@ -3346,58 +3398,6 @@ async function handleStream(type, id, config, workerOrigin) {
                 }
                 searchQueries.push(...uniqueQueries);
             } else { // Regular series search strategy
-                const seasonStr = String(season).padStart(2, '0');
-                const episodeStr = String(episode).padStart(2, '0');
-                
-                // Helper function to generate queries for a given title
-                const addQueriesForTitle = (title, label = '') => {
-                    if (!title) return;
-                    
-                    // Extract short version (before ":" if present)
-                    const shortTitle = title.includes(':') ? title.split(':')[0].trim() : title;
-                    
-                    // 1. BASE QUERIES (short version - higher priority)
-                    searchQueries.push(`${shortTitle} S${seasonStr}E${episodeStr}`);  // Episode specific
-                    searchQueries.push(`${shortTitle} S${seasonStr}`);                 // Season pack
-                    searchQueries.push(`${shortTitle} Stagione ${season}`);            // Italian word
-                    searchQueries.push(`${shortTitle} Season ${season}`);              // English word
-                    searchQueries.push(`${shortTitle} Complete`);                      // Complete pack
-                    searchQueries.push(`${shortTitle} S01`);                           // S01 packs
-                    
-                    // 2. COMPLETE QUERIES WITH CODES (full title with ":")
-                    if (title !== shortTitle) {
-                        searchQueries.push(`${title} S${seasonStr}E${episodeStr}`);
-                        searchQueries.push(`${title} S${seasonStr}`);
-                    }
-                    
-                    // 3. COMPLETE QUERIES WITH WORDS (full title with "Stagione/Season")
-                    if (title !== shortTitle) {
-                        searchQueries.push(`${title} Stagione ${season}`);
-                        searchQueries.push(`${title} Season ${season}`);
-                    }
-                    
-                    // 4. COMPLETE TITLE ONLY (for complete packs)
-                    if (title !== shortTitle) {
-                        searchQueries.push(title);
-                    }
-                    
-                    // 5. NORMALIZED QUERIES (without ":" but with spaces)
-                    if (title !== shortTitle && title.includes(':')) {
-                        const normalized = title.replace(/:/g, '');
-                        searchQueries.push(`${normalized} S${seasonStr}`);
-                        searchQueries.push(`${normalized} S${seasonStr}E${episodeStr}`);
-                    }
-                    
-                    // 6. Short title alone (only if really short)
-                    const titleWords = shortTitle.trim().split(/\s+/);
-                    const isShortTitle = titleWords.length === 1 && titleWords[0].length <= 6;
-                    if (isShortTitle) {
-                        searchQueries.push(shortTitle);
-                    }
-                    
-                    if (label) console.log(`📝 Added queries for ${label}: "${title}"`);
-                };
-                
                 // Add queries for main English title
                 addQueriesForTitle(mediaDetails.title, 'English title');
             }
