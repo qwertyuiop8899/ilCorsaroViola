@@ -829,6 +829,63 @@
             statusEl.style.color = '#4EC9B0';
         }
 
+        // ✅ Load existing configuration if present (from /configure endpoint)
+        if (window.EXISTING_CONFIG) {
+            console.log('📝 Preloading existing configuration...');
+            const cfg = window.EXISTING_CONFIG;
+            
+            // TMDb API Key (required)
+            if (cfg.tmdb_key) {
+                document.getElementById('tmdbKeyInput').value = cfg.tmdb_key;
+            }
+            
+            // Debrid services
+            if (cfg.use_rd && cfg.rd_key) {
+                document.getElementById('rdKeyInput').value = cfg.rd_key;
+            }
+            if (cfg.use_torbox && cfg.torbox_key) {
+                document.getElementById('torboxKeyInput').value = cfg.torbox_key;
+            }
+            if (cfg.use_alldebrid && cfg.ad_key) {
+                document.getElementById('allDebridKeyInput').value = cfg.ad_key;
+            }
+            
+            // MediaFlow Proxy
+            if (cfg.mediaflow_url) {
+                document.getElementById('mediaflowUrlInput').value = cfg.mediaflow_url;
+            }
+            if (cfg.mediaflow_password) {
+                document.getElementById('mediaflowPasswordInput').value = cfg.mediaflow_password;
+            }
+            
+            // Jackettio
+            if (cfg.jackett_url) {
+                document.getElementById('jackettUrlInput').value = cfg.jackett_url;
+            }
+            if (cfg.jackett_api_key) {
+                document.getElementById('jackettApiKeyInput').value = cfg.jackett_api_key;
+            }
+            if (cfg.jackett_password) {
+                document.getElementById('jackettPasswordInput').value = cfg.jackett_password;
+            }
+            
+            // Search sites checkboxes
+            if (cfg.use_corsaronero !== undefined) {
+                document.getElementById('useCorsaroNero').checked = cfg.use_corsaronero;
+            }
+            if (cfg.use_uindex !== undefined) {
+                document.getElementById('useUIndex').checked = cfg.use_uindex;
+            }
+            if (cfg.use_knaben !== undefined) {
+                document.getElementById('useKnaben').checked = cfg.use_knaben;
+            }
+            
+            console.log('✅ Configuration preloaded successfully');
+            
+            // Trigger updateInstallLink to refresh the UI
+            updateInstallLink();
+        }
+
         // Event listeners for all inputs
         rdKeyInput.addEventListener('input', updateInstallLink);
         torboxKeyInput.addEventListener('input', updateInstallLink);
