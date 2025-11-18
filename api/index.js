@@ -4297,7 +4297,8 @@ async function handleStream(type, id, config, workerOrigin) {
                         italianTitle: italianTitle,
                         originalTitle: originalTitle || mediaDetails.title,
                         type: type,
-                        year: mediaDetails.year
+                        year: mediaDetails.year,
+                        searchQueries: finalSearchQueries || [] // ✅ Send pre-built queries
                     }),
                     signal: AbortSignal.timeout(5000)
                 });
