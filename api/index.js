@@ -4159,45 +4159,17 @@ async function handleStream(type, id, config, workerOrigin) {
                 console.log(`⏭️  [Background] Skipping CorsaroNero save (used DB/FTS results - Tier 1/2)`);
             }
             
-            // 2️⃣ ENRICHMENT: ALWAYS run (for all 3 tiers) via VPS webhook
-            console.log(`🔍 [Enrichment Check] italianTitle="${italianTitle}", mediaDetails.title="${mediaDetails.title}", match=${italianTitle === mediaDetails.title}`);
-            if (italianTitle && italianTitle !== mediaDetails.title) {
-                console.log(`✅ [Webhook] Sending enrichment request to VPS for "${italianTitle}"`);
-                
-                // Call VPS enrichment server (fire and forget)
-                const enrichmentUrl = process.env.ENRICHMENT_SERVER_URL || 'http://localhost:3001/enrich';
-                const enrichmentApiKey = process.env.ENRICHMENT_API_KEY || 'change-me-in-production';
-                
-                fetch(enrichmentUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': enrichmentApiKey
-                    },
-                    body: JSON.stringify({
-                        imdbId: mediaDetails.imdbId,
-                        tmdbId: mediaDetails.tmdbId,
-                        italianTitle: italianTitle,
-                        originalTitle: originalTitle,
-                        type: type
-                    }),
-                    signal: AbortSignal.timeout(2000) // Timeout dopo 2s (non aspettiamo la risposta)
-                })
-                .then(response => {
-                    if (response.ok) {
-                        console.log(`✅ [Webhook] Enrichment request sent successfully`);
-                    } else {
-                        console.warn(`⚠️ [Webhook] Enrichment request failed: ${response.status}`);
-                    }
-                })
+            // 2️⃣ ENRICHMENT: ALWAYS run (for all 3 tiers) to discover more torrents
+            console.log(`🔍 [Enrichment Check] Starting enrichment for "${mediaDetails.title}"`);
+            console.log(`🔍 [Enrichment Titles] Italian: "${italianTitle || 'N/A'}", Original: "${originalTitle || 'N/A'}", English: "${mediaDetails.title}"`);
+            
+            // Fire and forget - start enrichment without waiting
+            enrichDatabaseInBackground(mediaDetails, type, season, episode, dbHelper, italianTitle, originalTitle)
+                .then(() => console.log(`✅ [Background] enrichDatabaseInBackground completed successfully`))
                 .catch(err => {
-                    // Ignore errors - enrichment is non-critical
-                    console.warn(`⚠️ [Webhook] Could not reach enrichment server:`, err.message);
+                    console.warn(`⚠️ [Background] Enrichment failed (non-critical):`, err.message);
+                    console.error(`❌ [Background] Full error:`, err);
                 });
-                
-            } else {
-                console.log(`⏭️  [Webhook] Enrichment skipped (no Italian title difference)`);
-            }
         } else {
             console.log(`⏭️  [Background] Enrichment skipped (dbEnabled=${dbEnabled}, hasMediaDetails=${!!mediaDetails}, hasIds=${!!(mediaDetails?.tmdbId || mediaDetails?.imdbId || mediaDetails?.kitsuId)})`);
         }
