@@ -3497,11 +3497,18 @@ async function handleStream(type, id, config, workerOrigin) {
                 if (!deduplicatedMap.has(hash)) {
                     deduplicatedMap.set(hash, dbResult);
                 } else {
-                    // Prefer entry with file_index (from searchEpisodeFiles)
+                    // ALWAYS prefer entry with file_index (from searchEpisodeFiles)
                     const existing = deduplicatedMap.get(hash);
-                    if (dbResult.file_index !== null && dbResult.file_index !== undefined && 
-                        (existing.file_index === null || existing.file_index === undefined)) {
+                    const hasFileIndex = dbResult.file_index !== null && dbResult.file_index !== undefined;
+                    const existingHasFileIndex = existing.file_index !== null && existing.file_index !== undefined;
+                    
+                    if (hasFileIndex && !existingHasFileIndex) {
+                        // New has file_index, existing doesn't → replace
+                        console.log(`💾 [DB Dedup] Replacing ${hash.substring(0,8)} (no fileIndex) with version that has fileIndex=${dbResult.file_index}`);
                         deduplicatedMap.set(hash, dbResult);
+                    } else if (hasFileIndex && existingHasFileIndex) {
+                        // Both have file_index → keep first one
+                        console.log(`💾 [DB Dedup] Keeping first ${hash.substring(0,8)} fileIndex=${existing.file_index}, skipping duplicate with fileIndex=${dbResult.file_index}`);
                     }
                 }
             }
