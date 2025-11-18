@@ -2290,16 +2290,23 @@ async function enrichDatabaseInBackground(mediaDetails, type, season = null, epi
         console.log(`🔄 [Background] Prepared ${torrentsToInsert.length}/${corsaroResults.length} torrents for insertion`);
         
         if (torrentsToInsert.length === 0) {
-            console.log(`🔄 [Background] No valid torrents to insert`);
+            console.log(`🔄 [Background] No valid torrents to insert (all had invalid hashes)`);
             return;
         }
         
         // Insert into DB (batch insert)
         try {
+            console.log(`💾 [Background] Calling batchInsertTorrents with ${torrentsToInsert.length} torrents...`);
             const insertedCount = await dbHelper.batchInsertTorrents(torrentsToInsert);
-            console.log(`✅ [Background] Successfully inserted ${insertedCount} new torrents into DB`);
+            console.log(`✅ [Background] batchInsertTorrents returned: ${insertedCount}`);
+            console.log(`✅ [Background] Successfully inserted/updated ${insertedCount}/${torrentsToInsert.length} torrents in DB`);
+            
+            if (insertedCount === 0 && torrentsToInsert.length > 0) {
+                console.log(`⚠️ [Background] All ${torrentsToInsert.length} torrents were already in DB (duplicates skipped)`);
+            }
         } catch (error) {
             console.warn(`⚠️ [Background] Failed to insert torrents:`, error.message);
+            console.error(`❌ [Background] Full error:`, error);
         }
         
     } catch (error) {
