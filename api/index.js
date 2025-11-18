@@ -4139,38 +4139,45 @@ async function handleStream(type, id, config, workerOrigin) {
         console.log(`🎉 Successfully processed ${streams.length} streams in ${totalTime}ms`);
         console.log(`⚡ ${cachedCount} cached streams available for instant playback`);
         
-        // 🔥 BACKGROUND TASK: Save CorsaroNero results + enrichment (ALWAYS, for all tiers)
+        // 🔥 ENRICHMENT: VPS webhook (fire and forget)
         console.log(`🔍 [Background Check] dbEnabled=${dbEnabled}, mediaDetails=${!!mediaDetails}, tmdbId=${mediaDetails?.tmdbId}, imdbId=${mediaDetails?.imdbId}, kitsuId=${mediaDetails?.kitsuId}`);
         
         if (dbEnabled && mediaDetails && (mediaDetails.tmdbId || mediaDetails.imdbId || mediaDetails.kitsuId)) {
-            
-            // Only save CorsaroNero results if we did live search
-            if (dbResults.length === 0) {
-                // 1️⃣ IMMEDIATE: Filter and save CorsaroNero results we already found
-                const corsaroResults = results.filter(r => r.source === 'CorsaroNero');
-                console.log(`🚀 [Background] Saving ${corsaroResults.length} CorsaroNero results to DB`);
-                
-                if (corsaroResults.length > 0) {
-                    // Fire and forget - don't wait
-                    saveCorsaroResultsToDB(corsaroResults, mediaDetails, type, dbHelper, italianTitle)
-                        .then(() => console.log(`✅ [Background] CorsaroNero results saved`))
-                        .catch(err => console.warn(`⚠️ [Background] DB save failed (non-critical):`, err.message));
-                }
-            } else {
-                console.log(`⏭️  [Background] Skipping CorsaroNero save (used DB/FTS results - Tier 1/2)`);
-            }
-            
-            // 2️⃣ ENRICHMENT: ALWAYS run (for all 3 tiers) to discover more torrents
-            console.log(`🔍 [Enrichment Check] Starting enrichment for "${mediaDetails.title}"`);
+            console.log(`🔍 [Enrichment] Preparing webhook for "${mediaDetails.title}"`);
             console.log(`🔍 [Enrichment Titles] Italian: "${italianTitle || 'N/A'}", Original: "${originalTitle || 'N/A'}", English: "${mediaDetails.title}"`);
             
-            // Fire and forget - start enrichment without waiting
-            enrichDatabaseInBackground(mediaDetails, type, season, episode, dbHelper, italianTitle, originalTitle)
-                .then(() => console.log(`✅ [Background] enrichDatabaseInBackground completed successfully`))
-                .catch(err => {
-                    console.warn(`⚠️ [Background] Enrichment failed (non-critical):`, err.message);
-                    console.error(`❌ [Background] Full error:`, err);
-                });
+            const enrichmentUrl = process.env.ENRICHMENT_SERVER_URL || 'http://localhost:3001/enrich';
+            const enrichmentApiKey = process.env.ENRICHMENT_API_KEY || 'change-me-in-production';
+            
+            console.log(`🚀 [Webhook] Calling VPS enrichment: ${enrichmentUrl}`);
+            
+            fetch(enrichmentUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': enrichmentApiKey
+                },
+                body: JSON.stringify({
+                    imdbId: mediaDetails.imdbId,
+                    tmdbId: mediaDetails.tmdbId,
+                    italianTitle: italianTitle,
+                    originalTitle: originalTitle,
+                    englishTitle: mediaDetails.title,
+                    type: type,
+                    year: mediaDetails.year
+                }),
+                signal: AbortSignal.timeout(2000)
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log(`✅ [Webhook] Enrichment queued (${response.status})`);
+                } else {
+                    console.warn(`⚠️ [Webhook] Failed: ${response.status}`);
+                }
+            })
+            .catch(err => {
+                console.warn(`⚠️ [Webhook] Unreachable:`, err.message);
+            });
         } else {
             console.log(`⏭️  [Background] Enrichment skipped (dbEnabled=${dbEnabled}, hasMediaDetails=${!!mediaDetails}, hasIds=${!!(mediaDetails?.tmdbId || mediaDetails?.imdbId || mediaDetails?.kitsuId)})`);
         }
