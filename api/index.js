@@ -1004,8 +1004,8 @@ async function searchUIndexMultiStrategy(originalQuery, type = 'movie') {
             continue;
         }
         
-        // Small delay between strategies
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Delay between strategies to avoid rate limiting (429 errors)
+        await new Promise(resolve => setTimeout(resolve, 400));
     }
     
     console.log(`🎉 Multi-strategy search found ${allResults.length} total unique results`);
