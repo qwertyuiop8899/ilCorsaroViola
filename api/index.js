@@ -3211,7 +3211,7 @@ async function handleStream(type, id, config, workerOrigin) {
                 // 📦 ALSO search pack_files for trilogies/collections
                 const packResults = await dbHelper.searchPacksByImdbId(mediaDetails.imdbId);
                 if (packResults && packResults.length > 0) {
-                    console.log(`💾 [DB] Found ${packResults.length} pack(s) containing this film`);
+                    console.log(`💾 [DB] Found ${packResults.length} pack(s) containing film ${mediaDetails.imdbId}`);
                     dbResults = [...dbResults, ...packResults];
                 }
             }
