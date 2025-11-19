@@ -3206,14 +3206,17 @@ async function handleStream(type, id, config, workerOrigin) {
                 }
             } else {
                 // Search for movie - both singles AND packs
-                dbResults = await dbHelper.searchByImdbId(mediaDetails.imdbId, type);
-                
-                // 📦 ALSO search pack_files for trilogies/collections
+                // 📦 PRIORITY 1: Search pack_files first (with file_index)
                 const packResults = await dbHelper.searchPacksByImdbId(mediaDetails.imdbId);
                 if (packResults && packResults.length > 0) {
                     console.log(`💾 [DB] Found ${packResults.length} pack(s) containing film ${mediaDetails.imdbId}`);
-                    dbResults = [...dbResults, ...packResults];
                 }
+                
+                // PRIORITY 2: Search regular torrents (single movies or packs via all_imdb_ids)
+                const regularResults = await dbHelper.searchByImdbId(mediaDetails.imdbId, type);
+                
+                // Merge: packs first (with file_index), then regular
+                dbResults = [...(packResults || []), ...regularResults];
             }
 
             // If found in DB, check if IDs are complete and convert if needed
