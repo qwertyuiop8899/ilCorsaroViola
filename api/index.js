@@ -3230,6 +3230,25 @@ async function handleStream(type, id, config, workerOrigin) {
         if (dbEnabled && dbResults.length === 0 && mediaDetails && mediaDetails.title) {
             console.log(`💾 [DB] No results by ID. Trying Full-Text Search (FTS)...`);
             
+            // Helper to extract short title (before ":" or "-")
+            const extractShortTitle = (title) => {
+                if (!title) return null;
+                
+                // Try splitting by ":" first
+                if (title.includes(':')) {
+                    const short = title.split(':')[0].trim();
+                    if (short.length > 0) return short;
+                }
+                
+                // Try splitting by " - " (with spaces)
+                if (title.includes(' - ')) {
+                    const short = title.split(' - ')[0].trim();
+                    if (short.length > 0) return short;
+                }
+                
+                return null;
+            };
+            
             // Import cleanTitleForSearch for title cleaning
             // Note: We need to replicate the logic here since it's not exported from daily-scraper
             const cleanTitleForFTS = (title) => {
@@ -3275,11 +3294,31 @@ async function handleStream(type, id, config, workerOrigin) {
             console.log(`💾 [DB FTS] Cleaned title: "${cleanedTitle}"`);
             
             try {
+                // ✅ PHASE 1: Try with full title first
                 dbResults = await dbHelper.searchByTitleFTS(
                     cleanedTitle,
                     type,
                     mediaDetails.year
                 );
+                
+                // ✅ PHASE 2: If no results and title has ":" or "-", try short title
+                if (dbResults.length === 0) {
+                    const shortTitle = extractShortTitle(mediaDetails.title);
+                    if (shortTitle && shortTitle !== mediaDetails.title) {
+                        const cleanedShortTitle = cleanTitleForFTS(shortTitle);
+                        console.log(`💾 [DB FTS] No results with full title. Trying short title: "${cleanedShortTitle}"`);
+                        
+                        dbResults = await dbHelper.searchByTitleFTS(
+                            cleanedShortTitle,
+                            type,
+                            mediaDetails.year
+                        );
+                        
+                        if (dbResults.length > 0) {
+                            console.log(`💾 [DB FTS Fallback] Found ${dbResults.length} results with short title!`);
+                        }
+                    }
+                }
                 
                 if (dbResults.length > 0) {
                     console.log(`💾 [DB FTS] Found ${dbResults.length} results via Full-Text Search!`);
