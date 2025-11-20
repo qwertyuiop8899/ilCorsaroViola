@@ -4489,7 +4489,8 @@ async function handleStream(type, id, config, workerOrigin) {
                         result.categories?.[0] ? `📂 ${result.categories[0]}` : ''
                     ].filter(Boolean).join('\n');
 
-                    streams.push({
+                    // 🔥 P2P Pack Support: Add fileIdx for pack torrents
+                    const p2pStream = {
                         name: streamName,
                         title: streamTitle,
                         infoHash: result.infoHash,
@@ -4498,7 +4499,15 @@ async function handleStream(type, id, config, workerOrigin) {
                             notWebReady: true
                         },
                         _meta: { infoHash: result.infoHash, cached: false, quality: result.quality, seeders: result.seeders }
-                    });
+                    };
+                    
+                    // Add fileIdx if this is a pack torrent with a specific file selected
+                    if (result.fileIndex !== null && result.fileIndex !== undefined) {
+                        p2pStream.fileIdx = result.fileIndex;
+                        console.log(`🔥 [P2P Pack] Added fileIdx=${result.fileIndex} for ${result.title.substring(0, 50)}...`);
+                    }
+                    
+                    streams.push(p2pStream);
                 }
                 
             } catch (error) {
@@ -4931,7 +4940,7 @@ export default async function handler(req, res) {
         // Gestisce sia /manifest.json che /{config}/manifest.json
         if (url.pathname.endsWith('/manifest.json')) {
             const manifest = {
-                id: 'community.ilcorsaroviola..ita',
+                id: 'community.ilcorsaroviola.ita',
                 version: '1.0.0',
                 name: 'IlCorsaroViola',
                 description: 'Streaming da UIndex, CorsaroNero DB local, Knaben e Jackettio con o senza Real-Debrid, Torbox e Alldebrid.',
