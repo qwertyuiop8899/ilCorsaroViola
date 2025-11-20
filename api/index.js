@@ -2825,13 +2825,119 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
 function isExactMovieMatch(torrentTitle, movieTitle, year) {
     if (!torrentTitle || !movieTitle) return false;
     
-    torrentTitle = torrentTitle.replace(/<[^>]*>/g, '')
-        .replace(/[\[.*?\]]/g, '')
-        .replace(/\(.*?\)/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    // SMART POSITION-AWARE NORMALIZATION
     
-    const normalizedTorrentTitle = torrentTitle.toLowerCase();
+    // Step 1: Check for YEAR RANGE first (YYYY-YYYY) - for collections/trilogies
+    const rangeMatch = torrentTitle.match(/\(?\s*(\d{4})\s*-\s*(\d{4})\s*\)?/);
+    
+    if (rangeMatch) {
+        // RANGE FOUND! (e.g., "Matrix Trilogia (1999-2003)" or "Collection 1989-2015")
+        const year1 = rangeMatch[1];
+        const year2 = rangeMatch[2];
+        const rangeIndex = torrentTitle.indexOf(rangeMatch[0]);
+        
+        // Get title before the range
+        let beforeRange = torrentTitle.substring(0, rangeIndex).trim();
+        
+        // Clean beforeRange
+        beforeRange = beforeRange
+            .replace(/<[^>]*>/g, '')
+            .replace(/\[.*?\]/g, '')
+            .replace(/\(+/g, ' ')
+            .replace(/\)+/g, ' ')
+            .replace(/[-_.]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        
+        // Return: title + year range (e.g., "matrix trilogia 1999-2003")
+        torrentTitle = `${beforeRange} ${year1}-${year2}`;
+    }
+    
+    // Step 2: Find single year BEFORE any cleanup to determine its position
+    const titleYearMatch = torrentTitle.match(/\b((?:19|20)\d{2})\b/);
+    
+    if (!rangeMatch && !titleYearMatch) {
+        // NO YEAR: Extract first 5 meaningful words (skip technical terms)
+        let words = torrentTitle
+            .replace(/<[^>]*>/g, '')
+            .replace(/\[.*?\]/g, '')
+            .replace(/\(.*?\)/g, '')
+            .replace(/[-_.]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 0);
+        
+        let meaningfulWords = [];
+        const techPattern = /^(?:480|720|1080|1440|2160|160|576|4K|8K|HD|UHD|FHD|FullHD|SD|HDR|HDR10|DV|x264|x265|H264|H265|HEVC|BluRay|WEBRip|WEBDL|BDRemux|AAC|AC3|DTS|Atmos|iTA|ENG|ITA|MULTI|SUB|MIRCrew|NAHOM|NeoNoir|FHC)$/i;
+        
+        for (let word of words) {
+            if (!techPattern.test(word) && !/^\d+\.?\d*$/.test(word)) {
+                meaningfulWords.push(word);
+                if (meaningfulWords.length >= 5) break;
+            }
+        }
+        
+        torrentTitle = meaningfulWords.join(' ');
+    } else if (!rangeMatch && titleYearMatch) {
+        const foundYear = titleYearMatch[1];
+        const yearIndex = torrentTitle.indexOf(foundYear);
+        const beforeYear = torrentTitle.substring(0, yearIndex).trim();
+        
+        // Check if there's meaningful content before year (not just brackets/punctuation)
+        const cleanBeforeYear = beforeYear.replace(/[\[\](){}]/g, '').replace(/[^\w\s]/g, ' ').trim();
+        const hasContentBeforeYear = cleanBeforeYear.length > 3;
+        
+        if (hasContentBeforeYear) {
+            // YEAR IS AFTER TITLE (98% of cases: "Title (2025)" or "Title 2025")
+            // Strategy: Keep title + year, remove everything after
+            let cleanTitle = beforeYear
+                .replace(/<[^>]*>/g, '')
+                .replace(/\[.*?\]/g, '')
+                .replace(/\(+/g, ' ')
+                .replace(/\)+/g, ' ')
+                .replace(/[-_.]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            torrentTitle = cleanTitle + ' ' + foundYear;
+        } else {
+            // YEAR IS AT START (1.4% of cases: "[2025] Title" or "2025 Title")
+            // Strategy: Remove year, clean title after it, take first 5 words
+            let afterYear = torrentTitle.substring(yearIndex + 4).trim();
+            afterYear = afterYear.replace(/^\s*[\[\](){}]\s*/, '');
+            
+            // Aggressive cleanup
+            afterYear = afterYear
+                .replace(/\b(?:480|720|1080|1440|2160|160|576)p?\b/gi, '')
+                .replace(/\b(?:4K|8K|HD|UHD|FHD|FullHD|SD)\b/gi, '')
+                .replace(/\b(?:HDR|HDR10|HDR10\+|DV|Dolby\.?Vision|SDR)\b/gi, '')
+                .replace(/\b(?:BluRay|BDRip|BDRemux|WEBRip|WEBDL|WEB-DL|WEB|BRRip|DVDRip)\b/gi, '')
+                .replace(/\b(?:x264|x265|H\.?264|H\.?265|HEVC|AVC)\b/gi, '')
+                .replace(/\b(?:AAC|AC3|DDP5\.1|DDP|DTS|Atmos|EAC3|MP3)\b/gi, '')
+                .replace(/\b(?:10Bit|10bit|8bit)\b/gi, '')
+                .replace(/\b(?:REMASTERED|UNRATED|EXTENDED|REPACK|IMAX|OPEN\.?MATTE|CUSTOM|EXPANDED|EDITION)\b/gi, '')
+                .replace(/\b(?:iTA|ENG|ITA|IND|JAP|CHI|KOR|DEU|FRE|Ita|Eng|THD|ATMOS)\s+(?:ENG|ITA|Eng|Ita|DTS|AAC|AC3|\d+\.?\d*)\b/g, '')
+                .replace(/\b(?:MULTI|MULTi|MULTISUB|NUita|NUeng|NUITA|NUENG)\b/gi, '')
+                .replace(/\bsub\s+(?:ita|eng|nuita|nueng)\b/gi, '')
+                .replace(/\b(?:MIRCrew|NAHOM|NeoNoir|PSA|FHC_CREW|FHC|Dr4gon|realDMDJ|Paso77|TheEmojiCreW|Licdom|phadron|ZEI|HD4ME|jeddak|Sp33dy94|UBi|Disney)\b/gi, '')
+                .replace(/\b(?:by\s+[\w]+)\b/gi, '')
+                .replace(/\b(?:ita|eng|jap|chi|ind|kor|deu|fre)\b/gi, '')
+                .replace(/\bsub\b/gi, '')
+                .replace(/\b\d+\.\d+\b/gi, '')
+                .replace(/\bmkv\b/gi, '')
+                .replace(/\[.*?\]/g, '')
+                .replace(/\(.*?\)/g, '')
+                .replace(/[-_.]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            // Take first 5 meaningful words
+            let words = afterYear.split(/\s+/).filter(w => w.length > 2);
+            if (words.length > 5) words = words.slice(0, 5);
+            torrentTitle = words.join(' ');
+        }
+    }
+    
+    const normalizedTorrentTitle = torrentTitle.toLowerCase().trim();
     const normalizedMovieTitle = movieTitle.toLowerCase()
         .replace(/[^\w\s]/g, ' ')
         .replace(/\s+/g, ' ')
