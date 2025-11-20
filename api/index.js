@@ -2870,15 +2870,8 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
     
     const seasonPackMatch = seasonPackPatterns.some(pattern => pattern.test(normalizedTorrentTitle));
     if (seasonPackMatch) {
-        // ⚠️ ANIME STRICT MODE: For anime, season packs are ONLY accepted if they have file_index in DB
-        // This is because anime needs exact episode matching, not generic season packs
-        if (isAnime) {
-            console.log(`⚠️ [ANIME SEASON PACK] Found season pack but SKIPPING (anime requires exact episode/range match)`);
-            // Don't return true - continue checking for episode ranges below
-        } else {
-            console.log(`✅ [SEASON PACK] Match for "${torrentTitle}" contains Season ${seasonNum}`);
-            return true;
-        }
+        console.log(`✅ [SEASON PACK] Match for "${torrentTitle}" contains Season ${seasonNum}`);
+        return true;
     }
     
     // ✅ COMPLETE SERIES PACK: Check for [COMPLETA] / [COMPLETE] / [FULL SERIES] without specific season number
@@ -2888,14 +2881,8 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
         // Only match if there's NO explicit season number (avoids false positives like "S02 COMPLETA")
         const hasExplicitSeason = /(?:stagione|season|s)\s*\d{1,2}/i.test(normalizedTorrentTitle);
         if (!hasExplicitSeason) {
-            // ⚠️ ANIME STRICT MODE: For anime, complete series packs need episode verification
-            if (isAnime) {
-                console.log(`⚠️ [ANIME COMPLETE] Found complete series but SKIPPING (anime requires exact episode/range match)`);
-                // Don't return true - let it fall through to episode range check below
-            } else {
-                console.log(`✅ [COMPLETE SERIES] Match for "${torrentTitle}" - complete series pack (no explicit season)`);
-                return true;
-            }
+            console.log(`✅ [COMPLETE SERIES] Match for "${torrentTitle}" - complete series pack (no explicit season)`);
+            return true;
         }
     }
     
@@ -2908,13 +2895,8 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
         const endSeason = parseInt(seasonRangeMatch[2]);
         console.log(`🔍 [MULTI-SEASON CHECK] "${torrentTitle}" has range S${startSeason}-S${endSeason}, checking if Season ${seasonNum} is included...`);
         if (seasonNum >= startSeason && seasonNum <= endSeason) {
-            // ⚠️ ANIME STRICT MODE: For anime, multi-season packs are too broad
-            if (isAnime) {
-                console.log(`⚠️ [ANIME MULTI-SEASON] Season ${seasonNum} in range S${startSeason}-S${endSeason} but SKIPPING (anime requires exact episode)`);
-            } else {
-                console.log(`✅ [MULTI-SEASON RANGE] Match for "${torrentTitle}" S${startSeason}-S${endSeason} contains Season ${seasonNum}`);
-                return true;
-            }
+            console.log(`✅ [MULTI-SEASON RANGE] Match for "${torrentTitle}" S${startSeason}-S${endSeason} contains Season ${seasonNum}`);
+            return true;
         } else {
             console.log(`❌ [MULTI-SEASON RANGE] Season ${seasonNum} is NOT in range S${startSeason}-S${endSeason}`);
         }
