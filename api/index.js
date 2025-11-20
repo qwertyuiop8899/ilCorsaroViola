@@ -2802,6 +2802,18 @@ function isExactEpisodeMatch(torrentTitle, showTitleOrTitles, seasonNum, episode
         return true;
     }
     
+    // ✅ COMPLETE SERIES PACK: Check for [COMPLETA] / [COMPLETE] / [FULL SERIES] without specific season number
+    // This handles anime and series that are packaged as complete series (e.g., "Death Note (2006) [COMPLETA]")
+    const completeSeriesPattern = /(?:completa?|complete|full.*series|serie.*completa?|integrale)/i;
+    if (completeSeriesPattern.test(normalizedTorrentTitle)) {
+        // Only match if there's NO explicit season number (avoids false positives like "S02 COMPLETA")
+        const hasExplicitSeason = /(?:stagione|season|s)\s*\d{1,2}/i.test(normalizedTorrentTitle);
+        if (!hasExplicitSeason) {
+            console.log(`✅ [COMPLETE SERIES] Match for "${torrentTitle}" - complete series pack (no explicit season)`);
+            return true;
+        }
+    }
+    
     // ✅ MULTI-SEASON RANGE: Check if season is within a range (e.g., "S01-S10" includes S08)
     // Patterns: S01-S10, Season 1-10, Stagione 1-10, S1-S10, etc.
     const multiSeasonRangePattern = /(?:s|season|stagione)\s*(\d{1,2})\s*[-–—]\s*(?:s|season|stagione)?\s*(\d{1,2})/i;
