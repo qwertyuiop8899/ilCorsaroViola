@@ -6,6 +6,8 @@
 ![Node.js](https://img.shields.io/badge/Node.js-Backend-green?style=for-the-badge)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue?style=for-the-badge)
 ![Real-Debrid](https://img.shields.io/badge/Real--Debrid-Supported-orange?style=for-the-badge)
+![AllDebrid](https://img.shields.io/badge/AllDebrid-Supported-red?style=for-the-badge)
+![TorBox](https://img.shields.io/badge/TorBox-Supported-blue?style=for-the-badge)
 
 **Il motore di ricerca italiano per Stremio più avanzato e intelligente.**
 
