@@ -5354,6 +5354,12 @@ export default async function handler(req, res) {
         try {
             // Extract filename from end of path
             const filename = url.pathname.endsWith('/logo.png') ? 'logo.png' : 'prisonmike.png';
+            
+            // ✅ Redirect logo.png to external URL
+            if (filename === 'logo.png') {
+                return res.redirect(302, 'https://github.com/qwertyuiop8899/logo/blob/main/logo.png?raw=true');
+            }
+
             const logoPath = path.join(process.cwd(), 'public', filename);
             
             console.log(`🖼️ [Logo] Serving ${filename} from ${logoPath}`);
@@ -5384,7 +5390,7 @@ export default async function handler(req, res) {
                 version: '1.0.0',
                 name: 'IlCorsaroViola',
                 description: 'Streaming da UIndex, CorsaroNero DB local, Knaben e Jackettio con o senza Real-Debrid, Torbox e Alldebrid.',
-                logo: `${url.origin}/logo.png`,
+                logo: 'https://github.com/qwertyuiop8899/logo/blob/main/logo.png?raw=true',
                 resources: ['stream'],
                 types: ['movie', 'series', 'anime'],
                 idPrefixes: ['tt', 'kitsu'],
