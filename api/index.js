@@ -1,6 +1,7 @@
 // Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)
 
 import * as cheerio from 'cheerio';
+import axios from 'axios';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -1978,6 +1979,92 @@ function extractImdbId(id) {
     return null;
 }
 
+// ✅ FALLBACK: Scrape IMDb directly if TMDB fails
+async function getIMDbDetailsDirectly(imdbId) {
+    console.log(`⚠️ [Fallback] Scraping IMDb directly for ${imdbId}...`);
+    try {
+        // 1. Try Italian
+        const responseIt = await axios.get(`https://www.imdb.com/title/${imdbId}/`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'
+            },
+            timeout: 5000
+        });
+
+        const $it = cheerio.load(responseIt.data);
+        let title = $it('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $it('h1[data-testid="hero__pageTitle"]').text();
+        
+        // Fallback to <title> tag parsing if h1 fails
+        if (!title) {
+             const pageTitle = $it('title').text(); // "Il padrino (1972) - IMDb"
+             title = pageTitle.split('(')[0].trim();
+        }
+
+        // Try to get year
+        let year = null;
+        // Try metadata list first
+        const yearText = $it('ul[data-testid="hero-title-block__metadata"] li:first-child a').text() || 
+                         $it('ul[data-testid="hero-title-block__metadata"] li:first-child span').text();
+        
+        if (yearText && /^\d{4}$/.test(yearText)) {
+            year = parseInt(yearText);
+        } else {
+             // Try from title tag
+             const match = $it('title').text().match(/\((\d{4})\)/);
+             if (match) year = parseInt(match[1]);
+        }
+
+        // Determine type (simple heuristic)
+        let type = 'movie';
+        const metadataText = $it('ul[data-testid="hero-title-block__metadata"]').text();
+        if (metadataText.includes('TV Series') || metadataText.includes('Serie TV') || $it('title').text().includes('Serie TV')) {
+            type = 'series';
+        }
+
+        if (title) {
+            console.log(`✅ [Fallback] Found Italian title: "${title}" (${year})`);
+            return {
+                title: title,
+                year: year,
+                type: type,
+                imdbId: imdbId,
+                tmdbId: null // Explicitly null as we failed to find it
+            };
+        }
+
+        // 2. Try English if Italian failed
+        console.log(`⚠️ [Fallback] Italian title empty, trying English...`);
+        const responseEn = await axios.get(`https://www.imdb.com/title/${imdbId}/`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            timeout: 5000
+        });
+        
+        const $en = cheerio.load(responseEn.data);
+        title = $en('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $en('h1[data-testid="hero__pageTitle"]').text();
+        
+        if (title) {
+             console.log(`✅ [Fallback] Found English title: "${title}"`);
+             return {
+                title: title,
+                year: year,
+                type: type,
+                imdbId: imdbId,
+                tmdbId: null
+            };
+        }
+
+        return null;
+
+    } catch (error) {
+        console.error(`❌ [Fallback] IMDb scraping failed: ${error.message}`);
+        return null;
+    }
+}
+
 async function getTMDBDetailsByImdb(imdbId, tmdbApiKey) {
     try {
         const response = await fetch(`${TMDB_BASE_URL}/find/${imdbId}?api_key=${tmdbApiKey}&external_source=imdb_id`, {
@@ -3425,7 +3512,15 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         if (!mediaDetails) {
-            console.log('❌ Could not find media details');
+            // ✅ FALLBACK: If TMDB conversion failed, try direct IMDb scraping
+            if (imdbId && imdbId.startsWith('tt')) {
+                console.log(`⚠️ TMDB lookup failed. Attempting direct IMDb fallback for ${imdbId}...`);
+                mediaDetails = await getIMDbDetailsDirectly(imdbId);
+            }
+        }
+
+        if (!mediaDetails) {
+            console.log('❌ Could not find media details (even after fallback)');
             return { streams: [] };
         }
         
