@@ -4242,14 +4242,18 @@ async function handleStream(type, id, config, workerOrigin) {
                 if (newLangInfo.isItalian && !existingLangInfo.isItalian) {
                     isNewBetter = true;
                 } else if (newLangInfo.isItalian === existingLangInfo.isItalian) {
+                    // Helper to check source type (handles "💾 CorsaroNero" etc.)
+                    const isJackettio = (src) => src && (src === 'Jackettio' || src.includes('Jackettio'));
+                    const isCorsaro = (src) => src && (src === 'CorsaroNero' || src.includes('CorsaroNero'));
+
                     // If language is the same, prefer Jackettio (private instance)
-                    if (result.source === 'Jackettio' && existing.source !== 'Jackettio') {
+                    if (isJackettio(result.source) && !isJackettio(existing.source)) {
                         isNewBetter = true;
-                    } else if (existing.source === 'Jackettio' && result.source !== 'Jackettio') {
+                    } else if (isJackettio(existing.source) && !isJackettio(result.source)) {
                         isNewBetter = false; // Keep Jackettio
-                    } else if (result.source === 'CorsaroNero' && existing.source !== 'CorsaroNero' && existing.source !== 'Jackettio') {
+                    } else if (isCorsaro(result.source) && !isCorsaro(existing.source) && !isJackettio(existing.source)) {
                         isNewBetter = true;
-                    } else if (result.source === existing.source || (result.source !== 'CorsaroNero' && existing.source !== 'CorsaroNero' && result.source !== 'Jackettio' && existing.source !== 'Jackettio')) {
+                    } else if (result.source === existing.source || (!isCorsaro(result.source) && !isCorsaro(existing.source) && !isJackettio(result.source) && !isJackettio(existing.source))) {
                         // If source is also the same, or neither is the preferred one, prefer more seeders
                         if ((result.seeders || 0) > (existing.seeders || 0)) {
                             isNewBetter = true;
