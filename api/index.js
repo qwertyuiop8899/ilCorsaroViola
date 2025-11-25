@@ -1,7 +1,6 @@
 // Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)
 
 import * as cheerio from 'cheerio';
-import axios from 'axios';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -1984,15 +1983,20 @@ async function getIMDbDetailsDirectly(imdbId) {
     console.log(`⚠️ [Fallback] Scraping IMDb directly for ${imdbId}...`);
     try {
         // 1. Try Italian
-        const responseIt = await axios.get(`https://www.imdb.com/title/${imdbId}/`, {
+        const controllerIt = new AbortController();
+        const timeoutIt = setTimeout(() => controllerIt.abort(), 5000);
+        
+        const responseIt = await fetch(`https://www.imdb.com/title/${imdbId}/`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'
             },
-            timeout: 5000
+            signal: controllerIt.signal
         });
+        clearTimeout(timeoutIt);
 
-        const $it = cheerio.load(responseIt.data);
+        const htmlIt = await responseIt.text();
+        const $it = cheerio.load(htmlIt);
         let title = $it('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $it('h1[data-testid="hero__pageTitle"]').text();
         
         // Fallback to <title> tag parsing if h1 fails
@@ -2035,15 +2039,21 @@ async function getIMDbDetailsDirectly(imdbId) {
 
         // 2. Try English if Italian failed
         console.log(`⚠️ [Fallback] Italian title empty, trying English...`);
-        const responseEn = await axios.get(`https://www.imdb.com/title/${imdbId}/`, {
+        
+        const controllerEn = new AbortController();
+        const timeoutEn = setTimeout(() => controllerEn.abort(), 5000);
+
+        const responseEn = await fetch(`https://www.imdb.com/title/${imdbId}/`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9'
             },
-            timeout: 5000
+            signal: controllerEn.signal
         });
+        clearTimeout(timeoutEn);
         
-        const $en = cheerio.load(responseEn.data);
+        const htmlEn = await responseEn.text();
+        const $en = cheerio.load(htmlEn);
         title = $en('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $en('h1[data-testid="hero__pageTitle"]').text();
         
         if (title) {
