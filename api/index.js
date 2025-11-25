@@ -4622,8 +4622,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
                     // Languages
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.isMulti ? '🌈 MULTI' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4722,8 +4722,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.isMulti ? '🌈 MULTI' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4811,8 +4811,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.isMulti ? '🌈 MULTI' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4880,8 +4880,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.isMulti ? '🌈 MULTI' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
