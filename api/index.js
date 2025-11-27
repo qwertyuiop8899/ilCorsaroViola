@@ -1937,6 +1937,8 @@ async function proxyThroughMediaFlow(directUrl, mediaflowConfig, filename = null
     }
     
     console.log(`🔀 Calling MediaFlow /generate_urls for: ${filename}${password ? ' (with password)' : ' (no password)'}`);
+    console.log(`🔀 Request URL: ${generateUrlsEndpoint}`);
+    console.log(`🔀 Request body: ${JSON.stringify(requestBody)}`);
     
     // Call MediaFlow to generate proxy URL
     const response = await fetch(generateUrlsEndpoint, {
