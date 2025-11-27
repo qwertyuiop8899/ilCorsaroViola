@@ -1,4 +1,4 @@
-// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel) 
+// Scraper Unificato: UIndex + Il Corsaro Nero + Knaben con o senza Real-Debrid (Versione Vercel)
 
 import * as cheerio from 'cheerio';
 import { promises as fs } from 'fs';
@@ -6800,6 +6800,7 @@ export default async function handler(req, res) {
 
                 const torbox = new Torbox(userConfig.torbox_key);
                 
+                console.log(`📦 [Torbox] API Key: ${userConfig.torbox_key}`);
                 console.log(`[Torbox] Resolving ${infoHash}`);
                 
                 // STEP 1: Try to find existing torrent (like Torrentio _findTorrent)
