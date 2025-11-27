@@ -260,6 +260,10 @@
             .config-grid .half-width {
                 grid-column: span 2;
             }
+            
+            .config-grid .two-rows {
+                grid-row: span 2;
+            }
         }
         
         @media (min-width: 768px) and (max-width: 1023px) {
@@ -594,7 +598,7 @@
             <div class="service-card">
                 <div class="service-header">
                     <div class="service-title">
-                        🔵 Real-Debrid (Opzionale)
+                        👑 Real-Debrid (Opzionale)
                         <a href="https://real-debrid.com/apitoken" target="_blank" title="Ottieni API Key">
                             <span class="key-icon">🔑</span>
                         </a>
@@ -615,6 +619,43 @@
                     <input type="checkbox" id="use_torbox">
                 </div>
                 <input id="torbox_key" placeholder="Torbox API Key" type="password" disabled>
+            </div>
+            
+            <!-- Siti di Ricerca Torrent (occupa 2 righe) -->
+            <div class="service-card two-rows">
+                <div class="section-title">🔎 Siti di Ricerca Torrent</div>
+                <small>Seleziona su quali siti cercare i torrent:</small>
+                <div class="search-sites">
+                    <label>
+                        <input type="checkbox" id="use_corsaronero" checked>
+                        <span>🏴‍☠️ Il Corsaro Nero (Italiano)</span>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="use_uindex" checked>
+                        <span>📚 UIndex (Internazionale)</span>
+                    </label>
+                    <label>
+                        <input type="checkbox" id="use_knaben" checked>
+                        <span>🦉 Knaben (Internazionale)</span>
+                    </label>
+                </div>
+                
+                <div style="margin-top: 15px; border-top: 1px solid rgba(147, 51, 234, 0.2); padding-top: 15px;">
+                    <label for="max_res_limit" style="display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 0; cursor: default;">
+                        <span style="font-size: 0.9em; color: #d1d5db;">Max Resolution Result</span>
+                        <select id="max_res_limit" style="width: 60px; background: rgba(10, 10, 26, 0.6); color: white; border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 4px; padding: 4px; cursor: pointer;">
+                            <option value="">No</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="15">15</option>
+                            <option value="20">20</option>
+                        </select>
+                    </label>
+                </div>
             </div>
             
             <!-- MediaFlow and Jackett Row -->
@@ -638,51 +679,6 @@
                 <input id="jackett_url" placeholder="Jackett URL (es: https://jackett.your-domain.com)" type="text">
                 <input id="jackett_api_key" placeholder="Jackett API Key" type="password">
                 <input id="jackett_password" placeholder="Jackett Password (opzionale)" type="password">
-            </div>
-            
-            <!-- Search Sites and Action Section Row -->
-            <div class="service-card" style="grid-column: span 2;">
-                <div class="section-title">🔎 Siti di Ricerca Torrent</div>
-                <small>Seleziona su quali siti cercare i torrent:</small>
-                <div class="search-sites">
-                    <label>
-                        <input type="checkbox" id="use_corsaronero" checked>
-                        <span>🏴‍☠️ Il Corsaro Nero (Italiano)</span>
-                    </label>
-                    <label>
-                        <input type="checkbox" id="use_uindex" checked>
-                        <span>📚 UIndex (Internazionale)</span>
-                    </label>
-                    <label>
-                        <input type="checkbox" id="use_knaben" checked>
-                        <span>🦉 Knaben (Internazionale)</span>
-                    </label>
-                </div>
-                
-                <div style="margin-top: 15px; border-top: 1px solid rgba(147, 51, 234, 0.2); padding-top: 15px;">
-                    <label for="max_res_limit" style="display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 0; cursor: default;">
-                        <span style="font-size: 0.9em; color: #d1d5db;">Max Resolution Result (limita i risultati per ogni risoluzione)</span>
-                        <select id="max_res_limit" style="width: 60px; background: rgba(10, 10, 26, 0.6); color: white; border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 4px; padding: 4px; cursor: pointer;">
-                            <option value="">No</option>
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
-                            <option value="7">7</option>
-                            <option value="9">8</option>
-                            <option value="9">9</option>
-                            <option value="10">10</option>
-                            <option value="11">11</option>
-                            <option value="12">12</option>
-                            <option value="13">13</option>
-                            <option value="14">14</option>
-                            <option value="15">15</option>
-                            <option value="20">20</option>
-                        </select>
-                    </label>
-                </div>
             </div>
             
             <div class="action-section full-width">
@@ -836,7 +832,7 @@
             let services = [];
             if (config.use_rd) services.push("Real-Debrid");
             if (config.use_torbox) services.push("Torbox");
-            if (config.use_alldebrid) services.push("AllDebrid");
+
             if (config.mediaflow_url) services.push("MediaFlow");
             if (config.jackett_url) services.push("Jackettio");
             
@@ -879,20 +875,6 @@
                         if (cfg.torbox_key) {
                             torboxKeyInput.value = cfg.torbox_key;
                             console.log('✅ Loaded torbox_key');
-                        }
-                    }
-                }
-                
-                // AllDebrid
-                if (cfg.use_alldebrid) {
-                    const useAllDebridCheckbox = document.getElementById('use_alldebrid');
-                    const allDebridKeyInput = document.getElementById('alldebrid_key');
-                    if (useAllDebridCheckbox && allDebridKeyInput) {
-                        useAllDebridCheckbox.checked = true;
-                        allDebridKeyInput.disabled = false;
-                        if (cfg.ad_key || cfg.alldebrid_key) {
-                            allDebridKeyInput.value = cfg.ad_key || cfg.alldebrid_key;
-                            console.log('✅ Loaded ad_key');
                         }
                     }
                 }
@@ -980,7 +962,7 @@
         // Event listeners for all inputs
         rdKeyInput.addEventListener('input', updateInstallLink);
         torboxKeyInput.addEventListener('input', updateInstallLink);
-        allDebridKeyInput.addEventListener('input', updateInstallLink);
+
         mediaflowUrlInput.addEventListener('input', updateInstallLink);
         mediaflowPasswordInput.addEventListener('input', updateInstallLink);
         jackettUrlInput.addEventListener('input', updateInstallLink);
