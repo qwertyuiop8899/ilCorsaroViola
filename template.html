@@ -552,9 +552,9 @@
                     <img src="https://github.com/qwertyuiop8899/logo/blob/main/logo.png?raw=true" alt="Logo" class="logo">
                     <div class="brand" style="text-align: center;">
                         <h1 style="margin-bottom: 5px;">IlCorsaroViola</h1>
-                        <small style="font-size: 15px; color: #9ca3af; display: block; line-height: 1.5;">
-                            Addon creato partendo da <a href="https://stremizio.vercel.app/" target="_blank" style="color: #9333ea; text-decoration: none;">Stremizio</a>, grazie a 
-                            <a href="https://github.com/StremioItalia/stremizio" target="_blank" style="color: #9333ea; text-decoration: none;">Steve Celticus</a>
+                        <small style="font-size: 12px; color: #9ca3af; display: block; line-height: 1.5;">
+                            Addon creato partendo da <a href="https://stremizio.vercel.app/" target="_blank" style="color: #9333ea; text-decoration: none;">Stremizio 2.0</a>, grazie a 
+                            <a href="https://github.com/StremioItalia/stremizio" target="_blank" style="color: #9333ea; text-decoration: none;">Steve</a>
                         </small>
                     </div>
                 </div>
@@ -633,11 +633,14 @@
             <!-- MediaFlow and Jackett Row -->
             <div class="service-card">
                 <div class="service-header">
-                    <div class="service-title">🔀 MediaFlow Proxy (Opzionale - Solo per RD)</div>
+                    <div class="service-title">🔀 EasyProxy o Mediaflow (Opzionale - Solo per RD)</div>
                 </div>
                 <small>Per condividere Real-Debrid tra più utenti</small>
-                <input id="mediaflow_url" placeholder="MediaFlow URL (es: https://your-mfp.com)" type="text">
-                <input id="mediaflow_password" placeholder="MediaFlow Password" type="password">
+                <input id="mediaflow_url" placeholder="Proxy URL (es: https://your-proxy.com)" type="text">
+                <input id="mediaflow_password" placeholder="Password (opzionale)" type="password">
+                <div id="proxy_no_password_warning" style="display: none; background: rgba(255, 100, 100, 0.15); border: 1px solid #FF6B6B; border-radius: 4px; padding: 8px; margin-top: 8px; font-size: 0.85em; color: #FF6B6B;">
+                    ⚠️ Proxy senza Password - Connessione non protetta!
+                </div>
             </div>
             
             <div class="service-card">
@@ -790,12 +793,22 @@
                 }
             }
             
-            // MediaFlow Proxy
+            // MediaFlow Proxy / EasyProxy
             const mediaflowUrl = mediaflowUrlInput.value.trim();
             const mediaflowPassword = mediaflowPasswordInput.value.trim();
-            if (mediaflowUrl && mediaflowPassword) {
+            const proxyWarning = document.getElementById('proxy_no_password_warning');
+            if (mediaflowUrl) {
                 config.mediaflow_url = mediaflowUrl;
-                config.mediaflow_password = mediaflowPassword;
+                if (mediaflowPassword) {
+                    config.mediaflow_password = mediaflowPassword;
+                    proxyWarning.style.display = 'none';
+                } else {
+                    // No password - show warning but still allow
+                    config.mediaflow_password = '';
+                    proxyWarning.style.display = 'block';
+                }
+            } else {
+                proxyWarning.style.display = 'none';
             }
             
             // Jackettio
@@ -1106,5 +1119,3 @@
     </script>
 </body>
 </html>
-
-
