@@ -1881,12 +1881,13 @@ function createDebridServices(config) {
         services.useAllDebrid = true;
     }
     
-    // Check MediaFlow Proxy (for RD sharing)
-    if (config.mediaflow_url && config.mediaflow_password) {
-        console.log('🔀 MediaFlow Proxy enabled for RD sharing');
+    // Check MediaFlow Proxy / EasyProxy (for RD sharing)
+    if (config.mediaflow_url) {
+        const hasPassword = config.mediaflow_password && config.mediaflow_password.length > 0;
+        console.log(`🔀 EasyProxy/MediaFlow enabled for RD sharing${hasPassword ? '' : ' (NO PASSWORD - UNPROTECTED)'}`);
         services.mediaflowProxy = {
             url: config.mediaflow_url,
-            password: config.mediaflow_password
+            password: config.mediaflow_password || ''
         };
     }
     
@@ -1897,7 +1898,7 @@ function createDebridServices(config) {
     return services;
 }
 
-// ✅ MediaFlow Proxy Helper - Using /generate_urls endpoint (like AIOStream)
+// ✅ MediaFlow Proxy / EasyProxy Helper - Using /generate_urls endpoint (like AIOStream)
 async function proxyThroughMediaFlow(directUrl, mediaflowConfig, filename = null) {
     if (!mediaflowConfig || !mediaflowConfig.url) {
         return directUrl; // No proxy configured, return direct URL
@@ -1913,17 +1914,17 @@ async function proxyThroughMediaFlow(directUrl, mediaflowConfig, filename = null
     
     const mediaflowUrl = mediaflowConfig.url.replace(/\/+$/, '');
     const generateUrlsEndpoint = `${mediaflowUrl}/generate_urls`;
+    const password = mediaflowConfig.password || '';
     
     // Build request body exactly like AIOStream
+    // If no password, send empty string (some proxies don't require auth)
     const requestBody = {
         mediaflow_proxy_url: mediaflowUrl,
-        api_password: mediaflowConfig.password,
+        api_password: password,
         urls: [{
             endpoint: '/proxy/stream',
             filename: filename,
-            query_params: {
-                api_password: mediaflowConfig.password
-            },
+            query_params: password ? { api_password: password } : {},
             destination_url: directUrl,
             request_headers: {},
             response_headers: {}
@@ -4745,7 +4746,7 @@ async function handleStream(type, id, config, workerOrigin) {
                     const providerLine = `🔗 ${providerName} 👥 ${result.seeders || 0}`;
                     
                     // MFP
-                    const mfpActive = config.mediaflow_url && config.mediaflow_password;
+                    const mfpActive = config.mediaflow_url ? true : false;
                     const lastLine = mfpActive ? '🌐 MFP' : '';
 
                     const streamTitle = [
@@ -6171,11 +6172,11 @@ export default async function handler(req, res) {
                     let finalUrl = unrestricted.download;
                     
                     // IMPORTANT: Apply MediaFlow proxy for ALL RealDebrid streams if configured
-                    if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                    if (userConfig.mediaflow_url) {
                         try {
                             finalUrl = await proxyThroughMediaFlow(
                                 unrestricted.download,
-                                { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password },
+                                { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' },
                                 null // filename will be extracted from URL
                             );
                             console.log(`[RealDebrid] MediaFlow proxy applied to all streams`);
@@ -6433,9 +6434,9 @@ export default async function handler(req, res) {
                         }
                         
                         // Apply MediaFlow proxy if configured
-                        if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                        if (userConfig.mediaflow_url) {
                             try {
-                                finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password }, null);
+                                finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' }, null);
                                 console.log(`🔒 Applied MediaFlow proxy to non-cached RD stream`);
                             } catch (mfError) {
                                 console.error(`❌ Failed to apply MediaFlow proxy: ${mfError.message}`);
@@ -6607,10 +6608,10 @@ export default async function handler(req, res) {
                 let finalStreamUrl = unrestricted.download;
                 
                 // ✅ Proxy through MediaFlow if configured
-                if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                if (userConfig.mediaflow_url) {
                     const mediaflowConfig = {
                         url: userConfig.mediaflow_url,
-                        password: userConfig.mediaflow_password
+                        password: userConfig.mediaflow_password || ''
                     };
                     // Note: If this fails, it will be caught by the outer catch block and return a 500 error.
                     finalStreamUrl = await proxyThroughMediaFlow(finalStreamUrl, mediaflowConfig, null);
@@ -6683,9 +6684,9 @@ export default async function handler(req, res) {
                     let finalStreamUrl = unrestricted.download;
                     
                     // Apply MediaFlow proxy if configured
-                    if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                    if (userConfig.mediaflow_url) {
                         try {
-                            finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password }, null);
+                            finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' }, null);
                             console.log(`🔒 Applied MediaFlow proxy to non-cached RD stream (status check)`);
                         } catch (mfError) {
                             console.error(`❌ Failed to apply MediaFlow proxy: ${mfError.message}`);
