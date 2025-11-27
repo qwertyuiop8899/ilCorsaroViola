@@ -638,16 +638,13 @@
                         <input type="checkbox" id="use_knaben" checked>
                         <span>🦉 Knaben (Internazionale)</span>
                     </label>
-                </div>
-                
-                <div style="margin-top: 15px; border-top: 1px solid rgba(147, 51, 234, 0.2); padding-top: 15px;">
-                    <label for="max_res_limit" style="display: flex; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 0; cursor: default;">
-                        <span style="font-size: 0.9em; color: #d1d5db;">Max Resolution Result</span>
-                        <select id="max_res_limit" style="width: 60px; background: rgba(10, 10, 26, 0.6); color: white; border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 4px; padding: 4px; cursor: pointer;">
-                            <option value="">No</option>
+                    <label>
+                        <input type="checkbox" id="use_max_res_limit">
+                        <span>✂️ Limita Risultati per Risoluzione</span>
+                        <select id="max_res_limit" style="margin-left: auto; width: 50px; background: rgba(10, 10, 26, 0.6); color: white; border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 4px; padding: 4px; cursor: pointer;" disabled>
                             <option value="1">1</option>
                             <option value="2">2</option>
-                            <option value="3">3</option>
+                            <option value="3" selected>3</option>
                             <option value="4">4</option>
                             <option value="5">5</option>
                             <option value="10">10</option>
@@ -711,6 +708,7 @@
         const useCorsaroNeroCheckbox = document.getElementById("use_corsaronero");
         const useUIndexCheckbox = document.getElementById("use_uindex");
         const useKnabenCheckbox = document.getElementById("use_knaben");
+        const useMaxResLimitCheckbox = document.getElementById("use_max_res_limit");
         const maxResLimitSelect = document.getElementById("max_res_limit");
         
         // Buttons
@@ -731,6 +729,12 @@
         useTorboxCheckbox.addEventListener('change', () => {
             torboxKeyInput.disabled = !useTorboxCheckbox.checked;
             if (!useTorboxCheckbox.checked) torboxKeyInput.value = '';
+            updateInstallLink();
+        });
+
+        // Enable/disable Max Resolution Limit select based on checkbox
+        useMaxResLimitCheckbox.addEventListener('change', () => {
+            maxResLimitSelect.disabled = !useMaxResLimitCheckbox.checked;
             updateInstallLink();
         });
 
@@ -797,10 +801,12 @@
             config.use_uindex = useUIndexCheckbox.checked;
             config.use_knaben = useKnabenCheckbox.checked;
             
-            // Max Resolution Limit
-            const maxResLimit = maxResLimitSelect.value;
-            if (maxResLimit) {
-                config.max_res_limit = parseInt(maxResLimit);
+            // Max Resolution Limit (only if checkbox is checked)
+            if (useMaxResLimitCheckbox.checked) {
+                const maxResLimit = maxResLimitSelect.value;
+                if (maxResLimit) {
+                    config.max_res_limit = parseInt(maxResLimit);
+                }
             }
             
             // Check if at least one search site is selected
@@ -943,8 +949,11 @@
                 
                 // Max Resolution Limit
                 if (cfg.max_res_limit) {
+                    const useMaxResLimitCheckbox = document.getElementById('use_max_res_limit');
                     const maxResLimitSelect = document.getElementById('max_res_limit');
-                    if (maxResLimitSelect) {
+                    if (useMaxResLimitCheckbox && maxResLimitSelect) {
+                        useMaxResLimitCheckbox.checked = true;
+                        maxResLimitSelect.disabled = false;
                         maxResLimitSelect.value = cfg.max_res_limit;
                         console.log('✅ Loaded max_res_limit:', cfg.max_res_limit);
                     }
@@ -973,6 +982,7 @@
         useCorsaroNeroCheckbox.addEventListener('change', updateInstallLink);
         useUIndexCheckbox.addEventListener('change', updateInstallLink);
         useKnabenCheckbox.addEventListener('change', updateInstallLink);
+        useMaxResLimitCheckbox.addEventListener('change', updateInstallLink);
         maxResLimitSelect.addEventListener('change', updateInstallLink);
         
         // Initial call to enable buttons
