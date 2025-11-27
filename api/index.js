@@ -6818,10 +6818,28 @@ export default async function handler(req, res) {
                 try {
                     const torrents = await torbox.getTorrents();
                     const foundTorrents = torrents.filter(t => t.hash?.toLowerCase() === infoHash.toLowerCase());
-                    const nonFailedTorrent = foundTorrents.find(t => t.active || t.download_finished);
-                    torrent = nonFailedTorrent || foundTorrents[0];
+                    
+                    // Only use existing torrent if it's ready (download_present) or actively downloading
+                    // Skip torrents stuck in metaDL state
+                    const readyTorrent = foundTorrents.find(t => t.download_present);
+                    const activeTorrent = foundTorrents.find(t => t.active && t.download_state !== 'metaDL');
+                    
+                    torrent = readyTorrent || activeTorrent;
+                    
                     if (torrent) {
-                        console.log(`[Torbox] Found existing torrent ID: ${torrent.id}`);
+                        console.log(`[Torbox] Found usable existing torrent ID: ${torrent.id}, download_present: ${torrent.download_present}`);
+                    } else if (foundTorrents.length > 0) {
+                        // Found torrents but none are usable (stuck in metaDL or failed)
+                        // Delete them and try fresh
+                        console.log(`[Torbox] Found ${foundTorrents.length} existing torrents but none ready, deleting stale ones...`);
+                        for (const staleTorrent of foundTorrents) {
+                            try {
+                                await torbox.deleteTorrent(staleTorrent.id);
+                                console.log(`[Torbox] Deleted stale torrent ${staleTorrent.id}`);
+                            } catch (e) {
+                                console.log(`[Torbox] Failed to delete torrent ${staleTorrent.id}: ${e.message}`);
+                            }
+                        }
                     }
                 } catch (error) {
                     console.log(`[Torbox] No existing torrent found: ${error.message}`);
