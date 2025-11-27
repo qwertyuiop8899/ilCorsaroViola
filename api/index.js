@@ -1917,21 +1917,26 @@ async function proxyThroughMediaFlow(directUrl, mediaflowConfig, filename = null
     const password = mediaflowConfig.password || '';
     
     // Build request body exactly like AIOStream
-    // If no password, send empty string (some proxies don't require auth)
+    // If no password, don't include api_password at all (some proxies reject empty string)
     const requestBody = {
         mediaflow_proxy_url: mediaflowUrl,
-        api_password: password,
         urls: [{
             endpoint: '/proxy/stream',
             filename: filename,
-            query_params: password ? { api_password: password } : {},
+            query_params: {},
             destination_url: directUrl,
             request_headers: {},
             response_headers: {}
         }]
     };
     
-    console.log(`🔀 Calling MediaFlow /generate_urls for: ${filename}`);
+    // Only add api_password if it's not empty
+    if (password) {
+        requestBody.api_password = password;
+        requestBody.urls[0].query_params.api_password = password;
+    }
+    
+    console.log(`🔀 Calling MediaFlow /generate_urls for: ${filename}${password ? ' (with password)' : ' (no password)'}`);
     
     // Call MediaFlow to generate proxy URL
     const response = await fetch(generateUrlsEndpoint, {
