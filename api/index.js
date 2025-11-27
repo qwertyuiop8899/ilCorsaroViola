@@ -6805,159 +6805,116 @@ export default async function handler(req, res) {
 
             try {
                 const magnetLink = decodeURIComponent(encodedMagnet);
-                const infoHash = extractInfoHash(magnetLink);
+                const infoHash = extractInfoHash(magnetLink)?.toLowerCase();
                 if (!infoHash) throw new Error('Magnet link non valido o senza info hash.');
 
                 const torbox = new Torbox(userConfig.torbox_key);
                 
                 console.log(`📦 [Torbox] API Key: ${userConfig.torbox_key}`);
-                console.log(`[Torbox] Resolving ${infoHash}`);
+                console.log(`[Torbox] Unrestricting ${infoHash}`);
                 
-                // STEP 1: Try to find existing torrent (like Torrentio _findTorrent)
-                let torrent = null;
-                try {
+                // ========== EXACT TORRENTIO LOGIC ==========
+                
+                // Helper functions (EXACT copy from Torrentio torbox.js)
+                const statusReady = (t) => t?.download_present;
+                const statusError = (t) => (!t?.active && !t?.download_finished) || t?.download_state === 'error';
+                const statusDownloading = (t) => (!statusReady(t) && !statusError(t)) || !!t?.queued_id;
+                
+                // _findTorrent (EXACT Torrentio logic)
+                const _findTorrent = async () => {
                     const torrents = await torbox.getTorrents();
-                    const foundTorrents = torrents.filter(t => t.hash?.toLowerCase() === infoHash.toLowerCase());
-                    
-                    // Only use existing torrent if it's ready (download_present) or actively downloading
-                    // Skip torrents stuck in metaDL state
-                    const readyTorrent = foundTorrents.find(t => t.download_present);
-                    const activeTorrent = foundTorrents.find(t => t.active && t.download_state !== 'metaDL');
-                    
-                    torrent = readyTorrent || activeTorrent;
-                    
-                    if (torrent) {
-                        console.log(`[Torbox] Found usable existing torrent ID: ${torrent.id}, download_present: ${torrent.download_present}`);
-                    } else if (foundTorrents.length > 0) {
-                        // Found torrents but none are usable (stuck in metaDL or failed)
-                        // Delete them and try fresh
-                        console.log(`[Torbox] Found ${foundTorrents.length} existing torrents but none ready, deleting stale ones...`);
-                        for (const staleTorrent of foundTorrents) {
-                            try {
-                                await torbox.deleteTorrent(staleTorrent.id);
-                                console.log(`[Torbox] Deleted stale torrent ${staleTorrent.id}`);
-                            } catch (e) {
-                                console.log(`[Torbox] Failed to delete torrent ${staleTorrent.id}: ${e.message}`);
-                            }
-                        }
+                    const foundTorrents = torrents.filter(t => t.hash?.toLowerCase() === infoHash);
+                    const nonFailedTorrent = foundTorrents.find(t => !statusError(t));
+                    const foundTorrent = nonFailedTorrent || foundTorrents[0];
+                    if (!foundTorrent) throw new Error('No recent torrent found');
+                    return foundTorrent;
+                };
+                
+                // _createTorrent (EXACT Torrentio logic)
+                const _createTorrent = async () => {
+                    const data = await torbox.addTorrent(magnetLink);
+                    if (data.torrent_id) {
+                        // Like Torrentio: getTorrentList(apiKey, data.torrent_id)
+                        return await torbox.getTorrentInfo(data.torrent_id);
                     }
-                } catch (error) {
-                    console.log(`[Torbox] No existing torrent found: ${error.message}`);
-                }
+                    if (data.queued_id) {
+                        return { ...data, download_state: 'metaDL' };
+                    }
+                    throw new Error(`Unexpected create data: ${JSON.stringify(data)}`);
+                };
                 
-                // STEP 1.5: Like Torrentio, skip cache check and directly try to add
-                // Torrentio doesn't check cache during resolve - it just tries to add
-                
-                // STEP 2: If not found, create new torrent (like Torrentio _createTorrent)
-                if (!torrent) {
-                    console.log(`[Torbox] Creating new torrent`);
-                    
+                // _createOrFindTorrent (EXACT Torrentio logic)
+                const _createOrFindTorrent = async () => {
                     try {
-                        const addResponse = await torbox.addTorrent(magnetLink);
-                        
-                        // Handle different response types from Torbox (like Torrentio does)
-                        if (addResponse.torrent_id) {
-                            // Torrent created - like Torrentio, immediately get fresh info with bypass_cache
-                            const torrentId = addResponse.torrent_id;
-                            console.log(`[Torbox] Torrent created with ID: ${torrentId}, fetching fresh info...`);
-                            
-                            // Get fresh torrent info with bypass_cache (exactly like Torrentio)
-                            const freshTorrents = await torbox.getTorrents(torrentId);
-                            torrent = Array.isArray(freshTorrents) 
-                                ? freshTorrents.find(t => t.id === torrentId)
-                                : freshTorrents; // Single torrent returned when ID is specified
-                            
-                            if (!torrent) {
-                                // Torrent not yet ready, show downloading
-                                console.log(`[Torbox] Torrent ${torrentId} not yet in list, showing downloading...`);
-                                return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
-                            }
-                        } else if (addResponse.queued_id) {
-                            // Torrent is queued (like Torrentio: download_state === 'metaDL')
-                            console.log(`[Torbox] Torrent queued with ID: ${addResponse.queued_id}`);
-                            return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
-                        } else {
-                            throw new Error(`Unexpected Torbox response: ${JSON.stringify(addResponse)}`);
-                        }
-                        
-                    } catch (addError) {
-                        // If we get 400, it might mean:
-                        // 1. Torrent is not in cache and Torbox can't/won't download it
-                        // 2. Invalid magnet link
-                        // 3. Torbox limitation
-                        
-                        console.log(`[Torbox] Failed to add torrent: ${addError.message}`);
-                        
-                        // Check if it's a "not cached" error vs other errors
-                        if (addError.message.includes('400')) {
-                            // Torrent not available in Torbox cache
-                            // Show placeholder indicating it's being added to download queue
-                            console.log(`[Torbox] Torrent not cached, starting download...`);
-                            return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
-                        }
-                        
-                        // For other errors, re-throw
-                        throw addError;
+                        return await _findTorrent();
+                    } catch {
+                        return await _createTorrent();
                     }
-                }
+                };
                 
-                // STEP 3: Check torrent status (EXACT Torrentio logic)
-                // Log detailed state for debugging
-                console.log(`[Torbox] Torrent state: download_present=${torrent?.download_present}, active=${torrent?.active}, download_finished=${torrent?.download_finished}, download_state=${torrent?.download_state}, queued_id=${torrent?.queued_id}`);
-                
-                const statusReady = torrent?.download_present;
-                const statusError = (!torrent?.active && !torrent?.download_finished) || torrent?.download_state === 'error';
-                const statusDownloading = (!statusReady && !statusError) || !!torrent?.queued_id;
-                
-                console.log(`[Torbox] Status check: ready=${statusReady}, error=${statusError}, downloading=${statusDownloading}`);
-                
-                if (statusReady) {
-                    // ✅ READY: Unrestrict and stream
-                    console.log(`[Torbox] Torrent ready, unrestricting...`);
-                    
-                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv'];
-                    const junkKeywords = ['sample', 'trailer', 'extra', 'bonus', 'extras'];
-                    
+                // _unrestrictLink (EXACT Torrentio logic)
+                const _unrestrictLink = async (torrent) => {
+                    const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
                     const videos = (torrent.files || [])
                         .filter(file => {
-                            const lowerName = file.name?.toLowerCase() || '';
-                            return videoExtensions.some(ext => lowerName.endsWith(ext));
-                        })
-                        .filter(file => {
-                            const lowerName = file.name?.toLowerCase() || '';
-                            return !junkKeywords.some(junk => lowerName.includes(junk)) || file.size > 250 * 1024 * 1024;
+                            const name = file.short_name?.toLowerCase() || file.name?.toLowerCase() || '';
+                            return videoExtensions.some(ext => name.endsWith(ext));
                         })
                         .sort((a, b) => b.size - a.size);
                     
                     const targetVideo = videos[0];
                     
                     if (!targetVideo) {
-                        if (torrent.files.every(file => file.name?.endsWith('.rar') || file.name?.endsWith('.zip'))) {
-                            console.log(`[Torbox] Failed: RAR archive`);
-                            return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/failed_rar_v2.mp4`);
+                        if (torrent.files?.every(file => file.zipped)) {
+                            return 'FAILED_RAR';
                         }
-                        throw new Error('No video file found');
+                        throw new Error(`No TorBox file found in: ${JSON.stringify(torrent.files)}`);
                     }
                     
-                    const downloadUrl = await torbox.createDownload(torrent.id, targetVideo.id);
+                    return await torbox.createDownload(torrent.id, targetVideo.id);
+                };
+                
+                // _retryCreateTorrent (EXACT Torrentio logic)
+                const _retryCreateTorrent = async () => {
+                    const newTorrent = await _createTorrent();
+                    if (newTorrent && statusReady(newTorrent)) {
+                        return await _unrestrictLink(newTorrent);
+                    }
+                    return 'FAILED_DOWNLOAD';
+                };
+                
+                // _resolve (EXACT Torrentio logic)
+                const torrent = await _createOrFindTorrent();
+                
+                console.log(`[Torbox] Torrent state: download_present=${torrent?.download_present}, active=${torrent?.active}, download_finished=${torrent?.download_finished}, download_state=${torrent?.download_state}`);
+                
+                if (torrent && statusReady(torrent)) {
+                    const result = await _unrestrictLink(torrent);
+                    if (result === 'FAILED_RAR') {
+                        console.log(`[Torbox] Failed: RAR archive`);
+                        return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/failed_rar_v2.mp4`);
+                    }
+                    console.log(`[Torbox] Streaming: ${result}`);
+                    return res.redirect(302, result);
                     
-                    console.log(`[Torbox] Redirecting to stream (direct, no MediaFlow)`);
-                    return res.redirect(302, downloadUrl);
-                    
-                } else if (statusDownloading) {
-                    // ⏳ DOWNLOADING: Show placeholder video
-                    console.log(`[Torbox] Torrent is downloading...`);
+                } else if (torrent && statusDownloading(torrent)) {
+                    console.log(`[Torbox] Downloading to TorBox ${infoHash}...`);
                     return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
                     
-                } else if (statusError) {
-                    // ❌ ERROR: Show failed video
-                    console.log(`[Torbox] Torrent failed`);
-                    return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
+                } else if (torrent && statusError(torrent)) {
+                    console.log(`[Torbox] Retry failed download in TorBox ${JSON.stringify(torrent)}...`);
+                    await torbox.deleteTorrent(torrent.id);
+                    const retryResult = await _retryCreateTorrent();
+                    if (retryResult === 'FAILED_DOWNLOAD') {
+                        return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
+                    }
+                    if (retryResult === 'FAILED_RAR') {
+                        return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/failed_rar_v2.mp4`);
+                    }
+                    return res.redirect(302, retryResult);
                 }
                 
-                // Fallback: something went wrong
-                console.log(`[Torbox] Unknown state, showing failed video`);
-                return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
+                throw new Error(`Failed TorBox adding torrent ${JSON.stringify(torrent)}`);
 
             } catch (error) {
                 console.error('📦 ❌ Torbox stream error:', error);
