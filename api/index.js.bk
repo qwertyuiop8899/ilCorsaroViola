@@ -169,21 +169,38 @@ function isItalian(title, italianMovieTitle = null) {
 }
 
 // ✅ NUOVA FUNZIONE: Icona lingua
-function getLanguageInfo(title, italianMovieTitle = null) {
-    if (!title) return { icon: '', isItalian: false };
+function getLanguageInfo(title, italianMovieTitle = null, source = null) {
+    if (!title) return { icon: '', isItalian: false, isMulti: false, displayLabel: '' };
 
     const lowerTitle = title.toLowerCase();
-
-    // Check for explicit multi-language keywords OR presence of both "ita" and "eng"
-    const hasIta = /\b(ita|italian)\b/i.test(lowerTitle);
+    
+    // Detect flags
+    let hasIta = /\b(ita|italian|subita)\b/i.test(lowerTitle) || isItalian(title, italianMovieTitle);
     const hasEng = /\b(eng|english)\b/i.test(lowerTitle);
+    const hasMulti = /\b(multi|dual)\b/i.test(lowerTitle);
 
-    if (/\b(multi|dual)\b/i.test(lowerTitle) || (hasIta && hasEng)) {
-        return { icon: '🌈 ', isItalian: true, isMulti: true }; // Rainbow icon for multi-language
+    // Force Italian for CorsaroNero
+    if (source && (source === 'CorsaroNero' || source.includes('CorsaroNero'))) {
+        hasIta = true;
     }
 
-    const isIta = isItalian(title, italianMovieTitle);
-    return { icon: isIta ? '🇮🇹 ' : '', isItalian: isIta, isMulti: false };
+    // Logic 1: ITA + ENG -> 🇮🇹 🇬🇧
+    if (hasIta && hasEng) {
+        return { icon: '🇮🇹 🇬🇧', isItalian: true, isMulti: true, displayLabel: '🇮🇹 🇬🇧' };
+    }
+
+    // Logic 2: SOLO ITA (or ITA + MULTI) -> 🇮🇹
+    if (hasIta) {
+        return { icon: '🇮🇹', isItalian: true, isMulti: false, displayLabel: '🇮🇹' };
+    }
+
+    // Logic 3: SOLO MULTI (No ITA) -> 🌈 MULTI
+    if (hasMulti) {
+        return { icon: '🌈', isItalian: false, isMulti: true, displayLabel: '🌈 MULTI' };
+    }
+
+    // Logic 4: SOLO ENG (Default) -> 🇬🇧
+    return { icon: '🇬🇧', isItalian: false, isMulti: false, displayLabel: '🇬🇧' };
 }
 
 // ✅ NUOVA FUNZIONE: Detecta Season Pack
@@ -1093,8 +1110,8 @@ function processAndSortResults(results, italianTitle = null) {
     // Sort by Italian, then quality, then by size, then by seeders
     validResults.sort((a, b) => {
         // ✅ MODIFICA: Usa la nuova logica unificata
-        const aLang = getLanguageInfo(a.title, italianTitle);
-        const bLang = getLanguageInfo(b.title, italianTitle);
+        const aLang = getLanguageInfo(a.title, italianTitle, a.source);
+        const bLang = getLanguageInfo(b.title, italianTitle, b.source);
 
         if (aLang.isItalian !== bLang.isItalian) return aLang.isItalian ? -1 : 1;
         if (aLang.isMulti !== bLang.isMulti) return aLang.isMulti ? -1 : 1;
@@ -1222,7 +1239,7 @@ function limitResultsByLanguageAndQuality(results, italianLimit = 5, otherLimit 
     // Separa i risultati italiani dagli altri
     for (const result of results) {
         // Usiamo la funzione getLanguageInfo per coerenza con il resto dell'app
-        const { isItalian, isMulti } = getLanguageInfo(result.title, null); // italianMovieTitle non è disponibile qui
+        const { isItalian, isMulti } = getLanguageInfo(result.title, null, result.source); // italianMovieTitle non è disponibile qui
         if (isItalian || isMulti) { // Tratta sia ITA che MULTI come prioritari
             italianResults.push(result);
         } else {
@@ -1298,16 +1315,16 @@ class RealDebrid {
         const results = {};
         const batchSize = 40; // RD API limit: max 40 hashes per request
         
-        console.log(`🔵 RD Cache check: ${hashes.length} hashes (${Math.ceil(hashes.length / batchSize)} batches)`);
+        console.log(`👑 RD Cache check: ${hashes.length} hashes (${Math.ceil(hashes.length / batchSize)} batches)`);
         
         for (let i = 0; i < hashes.length; i += batchSize) {
             const batch = hashes.slice(i, i + batchSize);
             const url = `${this.baseUrl}/torrents/instantAvailability/${batch.join('/')}`;
 
             try {
-                console.log(`🔵 [RD Debug] Request URL: ${url}`);
-                console.log(`🔵 [RD Debug] API Key length: ${this.apiKey.length}`);
-                console.log(`🔵 [RD Debug] Batch hashes: ${batch.join(', ')}`);
+                console.log(`👑 [RD Debug] Request URL: ${url}`);
+                console.log(`👑 [RD Debug] API Key length: ${this.apiKey.length}`);
+                console.log(`👑 [RD Debug] Batch hashes: ${batch.join(', ')}`);
                 
                 const response = await fetch(url, {
                     method: 'GET',
@@ -1379,7 +1396,7 @@ class RealDebrid {
         }
 
         const cachedCount = Object.values(results).filter(r => r.cached).length;
-        console.log(`🔵 RD Cache check complete: ${cachedCount}/${hashes.length} cached`);
+        console.log(`👑 RD Cache check complete: ${cachedCount}/${hashes.length} cached`);
 
         return results;
     }
@@ -1550,19 +1567,16 @@ class Torbox {
         
         const results = {};
         
-        // Torbox supports bulk check via POST
+        // Torbox supports bulk check via POST - use query params like Torrentio
         try {
-            const response = await fetch(`${this.baseUrl}/torrents/checkcached`, {
+            const response = await fetch(`${this.baseUrl}/torrents/checkcached?format=list&list_files=true`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'torrentio'
                 },
-                body: JSON.stringify({
-                    hashes: hashes,
-                    format: 'object',
-                    list_files: true
-                })
+                body: JSON.stringify({ hashes: hashes })
             });
 
             if (!response.ok) {
@@ -1572,17 +1586,20 @@ class Torbox {
             const data = await response.json();
             
             if (data.success && data.data) {
+                // Torrentio uses format=list, so data.data is an array of cached entries
+                const cachedHashes = new Set(
+                    (Array.isArray(data.data) ? data.data : [])
+                        .map(entry => entry.hash?.toLowerCase())
+                        .filter(Boolean)
+                );
+                
                 hashes.forEach(hash => {
-                    const cacheInfo = data.data[hash.toLowerCase()];
+                    const hashLower = hash.toLowerCase();
+                    const isCached = cachedHashes.has(hashLower);
                     
-                    // ✅ TORBOX API LOGIC: If hash is present in response data, it's cached
-                    // Torbox API returns the hash entry ONLY if it's in cache
-                    // If not in cache, the hash won't be in the response
-                    const isCached = !!cacheInfo;  // Present = cached
-                    
-                    results[hash.toLowerCase()] = {
-                        cached: isCached,  // Simple presence check
-                        downloadLink: null,  // Not needed, /torbox-stream handles everything
+                    results[hashLower] = {
+                        cached: isCached,
+                        downloadLink: null,
                         service: 'Torbox'
                     };
                 });
@@ -1607,7 +1624,8 @@ class Torbox {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'torrentio'
             },
             body: data.toString()
         });
@@ -1628,10 +1646,17 @@ class Torbox {
         return responseData.data;
     }
 
-    async getTorrents() {
-        const response = await fetch(`${this.baseUrl}/torrents/mylist`, {
+    async getTorrents(torrentId = null) {
+        // Use bypass_cache like Torrentio does
+        const params = new URLSearchParams({ bypass_cache: 'true' });
+        if (torrentId) {
+            params.append('id', torrentId);
+        }
+        
+        const response = await fetch(`${this.baseUrl}/torrents/mylist?${params}`, {
             headers: { 
-                'Authorization': `Bearer ${this.apiKey}` 
+                'Authorization': `Bearer ${this.apiKey}`,
+                'User-Agent': 'torrentio'
             }
         });
         
@@ -1652,7 +1677,8 @@ class Torbox {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'User-Agent': 'torrentio'
             },
             body: JSON.stringify({
                 torrent_id: torrentId,
@@ -1694,7 +1720,8 @@ class Torbox {
         const response = await fetch(`${this.baseUrl}/torrents/requestdl?${params}`, {
             method: 'GET',
             headers: {
-                'Authorization': `Bearer ${this.apiKey}`
+                'Authorization': `Bearer ${this.apiKey}`,
+                'User-Agent': 'torrentio'
             }
         });
 
@@ -1845,7 +1872,7 @@ function createDebridServices(config) {
     
     // Check RealDebrid
     if (config.use_rd && config.rd_key && config.rd_key.length > 5) {
-        console.log('🔵 Real-Debrid enabled');
+        console.log('👑 Real-Debrid enabled');
         services.realdebrid = new RealDebrid(config.rd_key);
         services.useRealDebrid = true;
     }
@@ -1864,12 +1891,13 @@ function createDebridServices(config) {
         services.useAllDebrid = true;
     }
     
-    // Check MediaFlow Proxy (for RD sharing)
-    if (config.mediaflow_url && config.mediaflow_password) {
-        console.log('🔀 MediaFlow Proxy enabled for RD sharing');
+    // Check MediaFlow Proxy / EasyProxy (for RD sharing)
+    if (config.mediaflow_url) {
+        const hasPassword = config.mediaflow_password && config.mediaflow_password.length > 0;
+        console.log(`🔀 EasyProxy/MediaFlow enabled for RD sharing${hasPassword ? '' : ' (NO PASSWORD - UNPROTECTED)'}`);
         services.mediaflowProxy = {
             url: config.mediaflow_url,
-            password: config.mediaflow_password
+            password: config.mediaflow_password || ''
         };
     }
     
@@ -1880,67 +1908,28 @@ function createDebridServices(config) {
     return services;
 }
 
-// ✅ MediaFlow Proxy Helper - Using /generate_urls endpoint (like AIOStream)
+// ✅ MediaFlow Proxy / EasyProxy Helper - Using direct URL construction (simpler, more reliable)
 async function proxyThroughMediaFlow(directUrl, mediaflowConfig, filename = null) {
     if (!mediaflowConfig || !mediaflowConfig.url) {
         return directUrl; // No proxy configured, return direct URL
     }
     
-    // Extract filename from URL if not provided
-    if (!filename) {
-        const urlParts = directUrl.split('/');
-        filename = urlParts[urlParts.length - 1] || 'stream.mkv';
-        // Remove query params from filename
-        filename = filename.split('?')[0];
-    }
-    
     const mediaflowUrl = mediaflowConfig.url.replace(/\/+$/, '');
-    const generateUrlsEndpoint = `${mediaflowUrl}/generate_urls`;
+    const password = mediaflowConfig.password || '';
     
-    // Build request body exactly like AIOStream
-    const requestBody = {
-        mediaflow_proxy_url: mediaflowUrl,
-        api_password: mediaflowConfig.password,
-        urls: [{
-            endpoint: '/proxy/stream',
-            filename: filename,
-            query_params: {
-                api_password: mediaflowConfig.password
-            },
-            destination_url: directUrl,
-            request_headers: {},
-            response_headers: {}
-        }]
-    };
+    // Method 1: Try direct URL construction first (simpler, no API call needed)
+    // Format: {proxy_url}/proxy/stream?d={encoded_destination_url}&api_password={password}
+    const encodedDestUrl = encodeURIComponent(directUrl);
+    let proxyStreamUrl = `${mediaflowUrl}/proxy/stream?d=${encodedDestUrl}`;
     
-    console.log(`🔀 Calling MediaFlow /generate_urls for: ${filename}`);
-    
-    // Call MediaFlow to generate proxy URL
-    const response = await fetch(generateUrlsEndpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(30000) // Increased timeout to 30s
-    });
-    
-    if (!response.ok) {
-        throw new Error(`MediaFlow returned ${response.status}: ${response.statusText}`);
+    if (password) {
+        proxyStreamUrl += `&api_password=${encodeURIComponent(password)}`;
     }
     
-    const data = await response.json();
+    console.log(`🔀 MediaFlow proxy URL constructed directly${password ? ' (with password)' : ' (no password)'}`);
+    console.log(`🔀 Proxy URL: ${proxyStreamUrl.substring(0, 150)}...`);
     
-    if (data.error) {
-        throw new Error(data.error);
-    }
-    
-    if (data.urls && data.urls.length > 0) {
-        console.log(`✅ MediaFlow proxy URL generated successfully`);
-        return data.urls[0]; // Return the generated MediaFlow proxy URL
-    } else {
-        throw new Error('No URLs returned from MediaFlow');
-    }
+    return proxyStreamUrl;
 }
 
 // ✅ Helper functions (unchanged)
@@ -1964,6 +1953,103 @@ function extractImdbId(id) {
     if (id.startsWith('tt')) return id;
     if (id.match(/^\d+$/)) return `tt${id}`;
     return null;
+}
+
+// ✅ FALLBACK: Scrape IMDb directly if TMDB fails
+async function getIMDbDetailsDirectly(imdbId) {
+    console.log(`⚠️ [Fallback] Scraping IMDb directly for ${imdbId}...`);
+    try {
+        // 1. Try Italian
+        const controllerIt = new AbortController();
+        const timeoutIt = setTimeout(() => controllerIt.abort(), 5000);
+        
+        const responseIt = await fetch(`https://www.imdb.com/title/${imdbId}/`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7'
+            },
+            signal: controllerIt.signal
+        });
+        clearTimeout(timeoutIt);
+
+        const htmlIt = await responseIt.text();
+        const $it = cheerio.load(htmlIt);
+        let title = $it('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $it('h1[data-testid="hero__pageTitle"]').text();
+        
+        // Fallback to <title> tag parsing if h1 fails
+        if (!title) {
+             const pageTitle = $it('title').text(); // "Il padrino (1972) - IMDb"
+             title = pageTitle.split('(')[0].trim();
+        }
+
+        // Try to get year
+        let year = null;
+        // Try metadata list first
+        const yearText = $it('ul[data-testid="hero-title-block__metadata"] li:first-child a').text() || 
+                         $it('ul[data-testid="hero-title-block__metadata"] li:first-child span').text();
+        
+        if (yearText && /^\d{4}$/.test(yearText)) {
+            year = parseInt(yearText);
+        } else {
+             // Try from title tag
+             const match = $it('title').text().match(/\((\d{4})\)/);
+             if (match) year = parseInt(match[1]);
+        }
+
+        // Determine type (simple heuristic)
+        let type = 'movie';
+        const metadataText = $it('ul[data-testid="hero-title-block__metadata"]').text();
+        if (metadataText.includes('TV Series') || metadataText.includes('Serie TV') || $it('title').text().includes('Serie TV')) {
+            type = 'series';
+        }
+
+        if (title) {
+            console.log(`✅ [Fallback] Found Italian title: "${title}" (${year})`);
+            return {
+                title: title,
+                year: year,
+                type: type,
+                imdbId: imdbId,
+                tmdbId: null // Explicitly null as we failed to find it
+            };
+        }
+
+        // 2. Try English if Italian failed
+        console.log(`⚠️ [Fallback] Italian title empty, trying English...`);
+        
+        const controllerEn = new AbortController();
+        const timeoutEn = setTimeout(() => controllerEn.abort(), 5000);
+
+        const responseEn = await fetch(`https://www.imdb.com/title/${imdbId}/`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            signal: controllerEn.signal
+        });
+        clearTimeout(timeoutEn);
+        
+        const htmlEn = await responseEn.text();
+        const $en = cheerio.load(htmlEn);
+        title = $en('h1[data-testid="hero__pageTitle"] span.hero__primary-text').text() || $en('h1[data-testid="hero__pageTitle"]').text();
+        
+        if (title) {
+             console.log(`✅ [Fallback] Found English title: "${title}"`);
+             return {
+                title: title,
+                year: year,
+                type: type,
+                imdbId: imdbId,
+                tmdbId: null
+            };
+        }
+
+        return null;
+
+    } catch (error) {
+        console.error(`❌ [Fallback] IMDb scraping failed: ${error.message}`);
+        return null;
+    }
 }
 
 async function getTMDBDetailsByImdb(imdbId, tmdbApiKey) {
@@ -3413,7 +3499,15 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         if (!mediaDetails) {
-            console.log('❌ Could not find media details');
+            // ✅ FALLBACK: If TMDB conversion failed, try direct IMDb scraping
+            if (imdbId && imdbId.startsWith('tt')) {
+                console.log(`⚠️ TMDB lookup failed. Attempting direct IMDb fallback for ${imdbId}...`);
+                mediaDetails = await getIMDbDetailsDirectly(imdbId);
+            }
+        }
+
+        if (!mediaDetails) {
+            console.log('❌ Could not find media details (even after fallback)');
             return { streams: [] };
         }
         
@@ -4081,41 +4175,10 @@ async function handleStream(type, id, config, workerOrigin) {
             }
         }
 
-        // 3️⃣ POST-PROCESSING: Filtro "Lista A / Lista B" (Italiano vs Altri)
-        
-        // Helper per rilevare italiano
-        const isItalianResult = (r) => {
-            const title = (r.title || '').toLowerCase();
-            return title.includes('ita') || title.includes('italian') || (r.audio && r.audio.includes('it'));
-        };
-
-        // Filtro Knaben
-        if (rawResultsByProvider.Knaben.length > 0) {
-            const knabenIta = rawResultsByProvider.Knaben.filter(isItalianResult);
-            if (knabenIta.length > 0) {
-                console.log(`🦉 [Knaben] Found ${knabenIta.length} Italian results. Hiding ${rawResultsByProvider.Knaben.length - knabenIta.length} non-Italian results.`);
-                rawResultsByProvider.Knaben = knabenIta;
-            } else {
-                console.log(`🦉 [Knaben] No Italian results found. Keeping all ${rawResultsByProvider.Knaben.length} international results.`);
-                // ✅ LIMIT FALLBACK: Keep only top 3 results to avoid flooding
-                rawResultsByProvider.Knaben = sortByQualityAndSeeders(rawResultsByProvider.Knaben).slice(0, 3);
-                console.log(`🦉 [Knaben] Limited fallback to top 3 results.`);
-            }
-        }
-
-        // Filtro UIndex
-        if (rawResultsByProvider.UIndex.length > 0) {
-            const uindexIta = rawResultsByProvider.UIndex.filter(isItalianResult);
-            if (uindexIta.length > 0) {
-                console.log(`📊 [UIndex] Found ${uindexIta.length} Italian results. Hiding ${rawResultsByProvider.UIndex.length - uindexIta.length} non-Italian results.`);
-                rawResultsByProvider.UIndex = uindexIta;
-            } else {
-                console.log(`📊 [UIndex] No Italian results found. Keeping all ${rawResultsByProvider.UIndex.length} international results.`);
-                // ✅ LIMIT FALLBACK: Keep only top 3 results to avoid flooding
-                rawResultsByProvider.UIndex = sortByQualityAndSeeders(rawResultsByProvider.UIndex).slice(0, 3);
-                console.log(`📊 [UIndex] Limited fallback to top 3 results.`);
-            }
-        }
+        // 3️⃣ POST-PROCESSING: MOVED AFTER SEASON FILTERING
+        // We no longer filter by language here to avoid discarding correct English seasons 
+        // when only incorrect Italian seasons are found.
+        // See "LANGUAGE FILTERING (Post-Season Filter)" below.
 
         // Merge finale
         const allRawResults = [
@@ -4256,7 +4319,7 @@ async function handleStream(type, id, config, workerOrigin) {
         for (const result of allRawResults) {
             if (!result.infoHash) continue;
             const hash = result.infoHash;
-            const newLangInfo = getLanguageInfo(result.title, italianTitle);
+            const newLangInfo = getLanguageInfo(result.title, italianTitle, result.source);
 
             if (!bestResults.has(hash)) {
                 bestResults.set(hash, result);
@@ -4266,21 +4329,25 @@ async function handleStream(type, id, config, workerOrigin) {
                 console.log(`🔍 [Dedup] DUPLICATE hash: ${hash.substring(0, 8)}... comparing "${existing.title.substring(0, 50)}..." vs "${result.title.substring(0, 50)}..."`);
                 console.log(`   Existing: size=${existing.size}, seeders=${existing.seeders}, fileIndex=${existing.fileIndex}`);
                 console.log(`   New: size=${result.size}, seeders=${result.seeders}, fileIndex=${result.fileIndex}`);
-                const existingLangInfo = getLanguageInfo(existing.title, italianTitle);
+                const existingLangInfo = getLanguageInfo(existing.title, italianTitle, existing.source);
 
                 let isNewBetter = false;
                 // An Italian version is always better than a non-Italian one.
                 if (newLangInfo.isItalian && !existingLangInfo.isItalian) {
                     isNewBetter = true;
                 } else if (newLangInfo.isItalian === existingLangInfo.isItalian) {
+                    // Helper to check source type (handles "💾 CorsaroNero" etc.)
+                    const isJackettio = (src) => src && (src === 'Jackettio' || src.includes('Jackettio'));
+                    const isCorsaro = (src) => src && (src === 'CorsaroNero' || src.includes('CorsaroNero'));
+
                     // If language is the same, prefer Jackettio (private instance)
-                    if (result.source === 'Jackettio' && existing.source !== 'Jackettio') {
+                    if (isJackettio(result.source) && !isJackettio(existing.source)) {
                         isNewBetter = true;
-                    } else if (existing.source === 'Jackettio' && result.source !== 'Jackettio') {
+                    } else if (isJackettio(existing.source) && !isJackettio(result.source)) {
                         isNewBetter = false; // Keep Jackettio
-                    } else if (result.source === 'CorsaroNero' && existing.source !== 'CorsaroNero' && existing.source !== 'Jackettio') {
+                    } else if (isCorsaro(result.source) && !isCorsaro(existing.source) && !isJackettio(existing.source)) {
                         isNewBetter = true;
-                    } else if (result.source === existing.source || (result.source !== 'CorsaroNero' && existing.source !== 'CorsaroNero' && result.source !== 'Jackettio' && existing.source !== 'Jackettio')) {
+                    } else if (result.source === existing.source || (!isCorsaro(result.source) && !isCorsaro(existing.source) && !isJackettio(result.source) && !isJackettio(existing.source))) {
                         // If source is also the same, or neither is the preferred one, prefer more seeders
                         if ((result.seeders || 0) > (existing.seeders || 0)) {
                             isNewBetter = true;
@@ -4356,13 +4423,9 @@ async function handleStream(type, id, config, workerOrigin) {
             
             console.log(`📺 Episode filtering: ${filteredResults.length} of ${originalCount} results match`);
             
-            // ⚠️ FALLBACK: For NON-anime series, if exact matching fails, be more lenient
-            // For anime, NEVER use fallback - if no episode matches, return nothing!
-            if (filteredResults.length === 0 && originalCount > 0 && !kitsuId) {
-                console.log('⚠️ Exact filtering removed all results, using broader match (NON-ANIME only)');
-                filteredResults = results.slice(0, Math.min(10, results.length));
-            } else if (filteredResults.length === 0 && kitsuId) {
-                console.log(`❌ [ANIME] No packs found containing episode ${episode}. Returning empty results.`);
+            // ⚠️ FALLBACK REMOVED: Strict season matching enforced.
+            if (filteredResults.length === 0 && originalCount > 0) {
+                console.log('❌ Exact filtering removed all results. Strict season matching enforced: returning 0 results.');
             }
         } else if (type === 'movie') {
             const originalCount = filteredResults.length;
@@ -4416,6 +4479,32 @@ async function handleStream(type, id, config, workerOrigin) {
                 filteredResults = results.slice(0, Math.min(15, results.length));
             }
         }
+
+        // ✅ LANGUAGE FILTERING (Post-Season Filter)
+        // Apply "Italian Preference" ONLY after we have filtered for the correct season/episode.
+        // This ensures we don't discard English S02 just because we found Italian S01.
+        if (filteredResults.length > 0) {
+            const hasItalianResults = filteredResults.some(r => {
+                const lang = getLanguageInfo(r.title, italianTitle, r.source);
+                return lang.isItalian || lang.isMulti;
+            });
+
+            if (hasItalianResults) {
+                const originalCount = filteredResults.length;
+                const italianOnly = filteredResults.filter(r => {
+                    const lang = getLanguageInfo(r.title, italianTitle, r.source);
+                    return lang.isItalian || lang.isMulti;
+                });
+                
+                // Only apply if we actually filter something out
+                if (italianOnly.length < originalCount) {
+                    console.log(`🇮🇹 [Lang Filter] Found ${italianOnly.length} Italian results for correct season. Hiding ${originalCount - italianOnly.length} non-Italian results.`);
+                    filteredResults = italianOnly;
+                }
+            } else {
+                console.log(`🌍 [Lang Filter] No Italian results for correct season. Keeping all ${filteredResults.length} international results.`);
+            }
+        }
         
         // Limit results for performance
         const maxResults = 30; // Increased limit
@@ -4439,7 +4528,7 @@ async function handleStream(type, id, config, workerOrigin) {
         const cacheChecks = [];
         
         if (useRealDebrid) {
-            console.log('🔵 Checking Real-Debrid cache...');
+            console.log('👑 Checking Real-Debrid cache...');
             cacheChecks.push(
                 (async () => {
                     // ⚠️ instantAvailability is DISABLED by RealDebrid (error_code 37)
@@ -4572,10 +4661,10 @@ async function handleStream(type, id, config, workerOrigin) {
                     // 3. No cache available
                     if (rdCacheData?.cached) {
                         cacheType = 'global';
-                        console.log(`🔵 ⚡ RD GLOBAL cache (DB): ${result.title}`);
+                        console.log(`👑 ⚡ RD GLOBAL cache (DB): ${result.title}`);
                     } else if (rdUserTorrent && rdUserTorrent.status === 'downloaded') {
                         cacheType = 'personal';
-                        console.log(`🔵 👤 Found in RD PERSONAL cache: ${result.title}`);
+                        console.log(`👑 👤 Found in RD PERSONAL cache: ${result.title}`);
                     } else {
                         cacheType = 'none';
                     }
@@ -4584,8 +4673,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     const cacheStatusIcon = isCached ? '⚡' : '⏬';
                     const errorIcon = streamError ? '⚠️ ' : '';
                     
-                    // New Name Format: IL 🏴‍☠️ 🔮 [🔵] [⚡] \n [Quality]
-                    const streamName = `IL 🏴‍☠️ 🔮 [🔵] [${cacheStatusIcon}]${errorIcon}\n${result.quality || 'Unknown'}`;
+                    // New Name Format: IL 🏴‍☠️ 🔮 [👑] [⚡] \n [Quality]
+                    const streamName = `IL 🏴‍☠️ 🔮 [👑] [${cacheStatusIcon}]${errorIcon}\n${result.quality || 'Unknown'}`;
                     
                     const debugInfo = streamError ? `\n⚠️ Stream error: ${streamError}` : '';
                     
@@ -4615,8 +4704,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
                     // Languages
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.displayLabel;
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4627,9 +4716,9 @@ async function handleStream(type, id, config, workerOrigin) {
 
                     const providerLine = `🔗 ${providerName} 👥 ${result.seeders || 0}`;
                     
-                    // MFP
-                    const mfpActive = config.mediaflow_url && config.mediaflow_password;
-                    const lastLine = mfpActive ? '🌐 MFP' : '';
+                    // Proxy RD indicator
+                    const proxyActive = config.mediaflow_url ? true : false;
+                    const lastLine = proxyActive ? '☂️ Proxy RD' : '';
 
                     const streamTitle = [
                         titleLine1,
@@ -4715,8 +4804,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.displayLabel;
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4804,8 +4893,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.displayLabel;
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -4873,8 +4962,8 @@ async function handleStream(type, id, config, workerOrigin) {
                     
                     const sizeLine = `💾 ${result.size || 'Unknown'}`;
                     
-                    const langInfo = getLanguageInfo(result.title, italianTitle);
-                    const langDisplay = langInfo.isMulti ? '🇬🇧 + 🇮🇹' : (langInfo.isItalian ? '🇮🇹' : '🇬🇧');
+                    const langInfo = getLanguageInfo(result.title, italianTitle, result.source);
+                    const langDisplay = langInfo.displayLabel;
                     const languageLine = `🗣️ ${langDisplay}`;
 
                     // Normalize provider name
@@ -6054,11 +6143,11 @@ export default async function handler(req, res) {
                     let finalUrl = unrestricted.download;
                     
                     // IMPORTANT: Apply MediaFlow proxy for ALL RealDebrid streams if configured
-                    if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                    if (userConfig.mediaflow_url) {
                         try {
                             finalUrl = await proxyThroughMediaFlow(
                                 unrestricted.download,
-                                { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password },
+                                { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' },
                                 null // filename will be extracted from URL
                             );
                             console.log(`[RealDebrid] MediaFlow proxy applied to all streams`);
@@ -6093,7 +6182,7 @@ export default async function handler(req, res) {
                 return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/download_failed_v2.mp4`);
 
             } catch (error) {
-                console.error('🔵 ❌ RD stream error:', error);
+                console.error('👑 ❌ RD stream error:', error);
                 
                 // 🔥 Torrentio-style: Check for specific error codes
                 const realdebrid = new RealDebrid(userConfig.rd_key || '');
@@ -6316,9 +6405,9 @@ export default async function handler(req, res) {
                         }
                         
                         // Apply MediaFlow proxy if configured
-                        if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                        if (userConfig.mediaflow_url) {
                             try {
-                                finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password }, null);
+                                finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' }, null);
                                 console.log(`🔒 Applied MediaFlow proxy to non-cached RD stream`);
                             } catch (mfError) {
                                 console.error(`❌ Failed to apply MediaFlow proxy: ${mfError.message}`);
@@ -6490,10 +6579,10 @@ export default async function handler(req, res) {
                 let finalStreamUrl = unrestricted.download;
                 
                 // ✅ Proxy through MediaFlow if configured
-                if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                if (userConfig.mediaflow_url) {
                     const mediaflowConfig = {
                         url: userConfig.mediaflow_url,
-                        password: userConfig.mediaflow_password
+                        password: userConfig.mediaflow_password || ''
                     };
                     // Note: If this fails, it will be caught by the outer catch block and return a 500 error.
                     finalStreamUrl = await proxyThroughMediaFlow(finalStreamUrl, mediaflowConfig, null);
@@ -6566,9 +6655,9 @@ export default async function handler(req, res) {
                     let finalStreamUrl = unrestricted.download;
                     
                     // Apply MediaFlow proxy if configured
-                    if (userConfig.mediaflow_url && userConfig.mediaflow_password) {
+                    if (userConfig.mediaflow_url) {
                         try {
-                            finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password }, null);
+                            finalStreamUrl = await proxyThroughMediaFlow(unrestricted.download, { url: userConfig.mediaflow_url, password: userConfig.mediaflow_password || '' }, null);
                             console.log(`🔒 Applied MediaFlow proxy to non-cached RD stream (status check)`);
                         } catch (mfError) {
                             console.error(`❌ Failed to apply MediaFlow proxy: ${mfError.message}`);
@@ -6721,6 +6810,7 @@ export default async function handler(req, res) {
 
                 const torbox = new Torbox(userConfig.torbox_key);
                 
+                console.log(`📦 [Torbox] API Key: ${userConfig.torbox_key}`);
                 console.log(`[Torbox] Resolving ${infoHash}`);
                 
                 // STEP 1: Try to find existing torrent (like Torrentio _findTorrent)
@@ -6728,38 +6818,35 @@ export default async function handler(req, res) {
                 try {
                     const torrents = await torbox.getTorrents();
                     const foundTorrents = torrents.filter(t => t.hash?.toLowerCase() === infoHash.toLowerCase());
-                    const nonFailedTorrent = foundTorrents.find(t => t.active || t.download_finished);
-                    torrent = nonFailedTorrent || foundTorrents[0];
+                    
+                    // Only use existing torrent if it's ready (download_present) or actively downloading
+                    // Skip torrents stuck in metaDL state
+                    const readyTorrent = foundTorrents.find(t => t.download_present);
+                    const activeTorrent = foundTorrents.find(t => t.active && t.download_state !== 'metaDL');
+                    
+                    torrent = readyTorrent || activeTorrent;
+                    
                     if (torrent) {
-                        console.log(`[Torbox] Found existing torrent ID: ${torrent.id}`);
+                        console.log(`[Torbox] Found usable existing torrent ID: ${torrent.id}, download_present: ${torrent.download_present}`);
+                    } else if (foundTorrents.length > 0) {
+                        // Found torrents but none are usable (stuck in metaDL or failed)
+                        // Delete them and try fresh
+                        console.log(`[Torbox] Found ${foundTorrents.length} existing torrents but none ready, deleting stale ones...`);
+                        for (const staleTorrent of foundTorrents) {
+                            try {
+                                await torbox.deleteTorrent(staleTorrent.id);
+                                console.log(`[Torbox] Deleted stale torrent ${staleTorrent.id}`);
+                            } catch (e) {
+                                console.log(`[Torbox] Failed to delete torrent ${staleTorrent.id}: ${e.message}`);
+                            }
+                        }
                     }
                 } catch (error) {
                     console.log(`[Torbox] No existing torrent found: ${error.message}`);
                 }
                 
-                // STEP 1.5: If not found in user torrents, check if it's in GLOBAL cache
-                // This is CRITICAL: if cached, add it instantly without downloading!
-                if (!torrent) {
-                    console.log(`[Torbox] Checking global cache for ${infoHash}`);
-                    try {
-                        const cacheCheck = await torbox.checkCache([infoHash]);
-                        const cacheInfo = cacheCheck[infoHash.toLowerCase()];
-                        
-                        // cacheInfo.cached is now always true if returned by checkCache
-                        if (cacheInfo && cacheInfo.cached) {
-                            console.log(`[Torbox] ⚡ Found in GLOBAL cache! Adding instantly...`);
-                            // Torrent is in global cache, adding will be instant
-                            // Continue to STEP 2 to add it
-                        } else {
-                            console.log(`[Torbox] ⚠️ NOT in cache, will need to download`);
-                            // Not in cache, show downloading placeholder immediately
-                            return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
-                        }
-                    } catch (cacheError) {
-                        console.log(`[Torbox] Cache check failed: ${cacheError.message}, will try to add anyway`);
-                        // If cache check fails, be optimistic and try to add
-                    }
-                }
+                // STEP 1.5: Like Torrentio, skip cache check and directly try to add
+                // Torrentio doesn't check cache during resolve - it just tries to add
                 
                 // STEP 2: If not found, create new torrent (like Torrentio _createTorrent)
                 if (!torrent) {
@@ -6770,14 +6857,18 @@ export default async function handler(req, res) {
                         
                         // Handle different response types from Torbox (like Torrentio does)
                         if (addResponse.torrent_id) {
-                            // Torrent created, try to get info
+                            // Torrent created - like Torrentio, immediately get fresh info with bypass_cache
                             const torrentId = addResponse.torrent_id;
-                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            console.log(`[Torbox] Torrent created with ID: ${torrentId}, fetching fresh info...`);
                             
-                            try {
-                                torrent = await torbox.getTorrentInfo(torrentId);
-                            } catch (getTorrentError) {
-                                // Torrent not yet in list, show downloading placeholder
+                            // Get fresh torrent info with bypass_cache (exactly like Torrentio)
+                            const freshTorrents = await torbox.getTorrents(torrentId);
+                            torrent = Array.isArray(freshTorrents) 
+                                ? freshTorrents.find(t => t.id === torrentId)
+                                : freshTorrents; // Single torrent returned when ID is specified
+                            
+                            if (!torrent) {
+                                // Torrent not yet ready, show downloading
                                 console.log(`[Torbox] Torrent ${torrentId} not yet in list, showing downloading...`);
                                 return res.redirect(302, `${TORRENTIO_VIDEO_BASE}/videos/downloading_v2.mp4`);
                             }
@@ -6811,9 +6902,14 @@ export default async function handler(req, res) {
                 }
                 
                 // STEP 3: Check torrent status (EXACT Torrentio logic)
+                // Log detailed state for debugging
+                console.log(`[Torbox] Torrent state: download_present=${torrent?.download_present}, active=${torrent?.active}, download_finished=${torrent?.download_finished}, download_state=${torrent?.download_state}, queued_id=${torrent?.queued_id}`);
+                
                 const statusReady = torrent?.download_present;
                 const statusError = (!torrent?.active && !torrent?.download_finished) || torrent?.download_state === 'error';
                 const statusDownloading = (!statusReady && !statusError) || !!torrent?.queued_id;
+                
+                console.log(`[Torbox] Status check: ready=${statusReady}, error=${statusError}, downloading=${statusDownloading}`);
                 
                 if (statusReady) {
                     // ✅ READY: Unrestrict and stream
