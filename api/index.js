@@ -4706,9 +4706,9 @@ async function handleStream(type, id, config, workerOrigin) {
 
                     const providerLine = `🔗 ${providerName} 👥 ${result.seeders || 0}`;
                     
-                    // MFP
-                    const mfpActive = config.mediaflow_url ? true : false;
-                    const lastLine = mfpActive ? '🌐 MFP' : '';
+                    // Proxy RD indicator
+                    const proxyActive = config.mediaflow_url ? true : false;
+                    const lastLine = proxyActive ? '☂️ Proxy RD' : '';
 
                     const streamTitle = [
                         titleLine1,
