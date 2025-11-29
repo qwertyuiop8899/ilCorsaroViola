@@ -4228,7 +4228,22 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         // 2️⃣ MAIN LOOP: CorsaroNero, Knaben, Jackettio (Query Complete)
+        // 🛑 EARLY EXIT LOGIC: Track results from Italian title queries vs English fallback
+        let foundWithItalianTitleQueries = 0; // Count results from Italian title queries
+        const cleanedItalianTitle = italianTitle ? cleanTitleForSearch(italianTitle) : '';
+        const cleanedEnglishTitle = cleanTitleForSearch(mediaDetails.title || '');
+        
         for (const query of finalSearchQueries) {
+            // 🛑 EARLY EXIT: If we found good results with Italian title queries, skip English fallback
+            const isEnglishFallbackQuery = cleanedEnglishTitle && 
+                query.toLowerCase().startsWith(cleanedEnglishTitle) && 
+                !query.toLowerCase().includes(cleanedItalianTitle);
+            
+            if (isEnglishFallbackQuery && foundWithItalianTitleQueries >= 3) {
+                console.log(`✅ [EARLY EXIT] Found ${foundWithItalianTitleQueries} results with Italian title. Skipping English fallback query: "${query}"`);
+                continue; // Skip this query, don't break - we might have more ITA queries after
+            }
+            
             console.log(`\n🔍 Searching sources for: "${query}"`);
 
             // Stop searching if we have a good number of results (checking total accumulated)
@@ -4283,6 +4298,14 @@ async function handleStream(type, id, config, workerOrigin) {
                     console.log(`✅ ${sourceName} returned ${result.value.length} results for query.`);
                     if (rawResultsByProvider[sourceName]) {
                         rawResultsByProvider[sourceName].push(...result.value);
+                    }
+                    
+                    // 🛑 Track results from Italian title queries for early exit
+                    const isItalianTitleQuery = cleanedItalianTitle && 
+                        query.toLowerCase().includes(cleanedItalianTitle);
+                    if (isItalianTitleQuery && result.value.length > 0) {
+                        foundWithItalianTitleQueries += result.value.length;
+                        console.log(`📊 [ITA TRACKING] Query "${query}" added ${result.value.length} results. Total ITA results: ${foundWithItalianTitleQueries}`);
                     }
                 } else if (result.status === 'rejected') {
                     console.error(`❌ ${sourceName} search failed:`, result.reason);
