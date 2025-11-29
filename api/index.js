@@ -3924,10 +3924,60 @@ async function handleStream(type, id, config, workerOrigin) {
         // 📺 For series: check if at least one result matches the requested season
         // If all results are from different seasons, we should still do live search for Corsaro
         if (skipLiveSearch && type === 'series' && season) {
+            const seasonNum = parseInt(season);
             const hasMatchingSeason = dbResults.some(result => {
                 const title = result.title || result.torrent_title || '';
-                const seasonPattern = new RegExp(`[Ss](0?${season})[Ee\\s]|[Ss]tagione?\\s*${season}|[Ss]eason\\s*${season}`, 'i');
-                return seasonPattern.test(title);
+                
+                // 1. Check singola stagione: S02E01, S02 , Stagione 2, Season 2
+                //    Usa (?![0-9]) per evitare che S2 matchi S21 o S22
+                const singleSeasonPattern = new RegExp(
+                    `[Ss](0?${season})(?![0-9])([Ee\\s]|$|[^0-9])|[Ss]tagione\\s*${season}(?![0-9])|[Ss]eason\\s*${season}(?![0-9])`, 'i'
+                );
+                if (singleSeasonPattern.test(title)) {
+                    console.log(`✅ [TIER CHECK] Single season match for "${title.substring(0, 60)}..."`);
+                    return true;
+                }
+                
+                // 2. Check range multi-stagione: S01-08, S1-8, S01-S08, S01 S08
+                const rangeMatch = title.match(/[Ss](0?\d+)[-–\s]+[Ss]?(0?\d+)/i);
+                if (rangeMatch) {
+                    const startSeason = parseInt(rangeMatch[1]);
+                    const endSeason = parseInt(rangeMatch[2]);
+                    if (seasonNum >= startSeason && seasonNum <= endSeason) {
+                        console.log(`✅ [TIER CHECK] Range S${startSeason}-S${endSeason} contains Season ${season}`);
+                        return true;
+                    }
+                }
+                
+                // 3. Check range "Stagioni 01-08", "Stagioni 1 a 8"
+                const stagioniMatch = title.match(/[Ss]tagioni?\s*(0?\d+)[-–\s]+(?:a\s*)?(0?\d+)/i);
+                if (stagioniMatch) {
+                    const startSeason = parseInt(stagioniMatch[1]);
+                    const endSeason = parseInt(stagioniMatch[2]);
+                    if (seasonNum >= startSeason && seasonNum <= endSeason) {
+                        console.log(`✅ [TIER CHECK] Stagioni ${startSeason}-${endSeason} contains Season ${season}`);
+                        return true;
+                    }
+                }
+                
+                // 4. Check "S01 a S08" pattern
+                const aRangeMatch = title.match(/[Ss](0?\d+)\s+a\s+[Ss](0?\d+)/i);
+                if (aRangeMatch) {
+                    const startSeason = parseInt(aRangeMatch[1]);
+                    const endSeason = parseInt(aRangeMatch[2]);
+                    if (seasonNum >= startSeason && seasonNum <= endSeason) {
+                        console.log(`✅ [TIER CHECK] S${startSeason} a S${endSeason} contains Season ${season}`);
+                        return true;
+                    }
+                }
+                
+                // 5. Check serie completa
+                if (/\[COMPLETA\]|Complete\s*Series|Tutte\s*le\s*stagioni|Serie\s*Completa/i.test(title)) {
+                    console.log(`✅ [TIER CHECK] Complete series detected: "${title.substring(0, 60)}..."`);
+                    return true;
+                }
+                
+                return false;
             });
             
             if (!hasMatchingSeason) {
@@ -3946,57 +3996,73 @@ async function handleStream(type, id, config, workerOrigin) {
         const searchQueries = [];
         let finalSearchQueries = []; // Declare here, outside the conditional blocks
         
+        // 🧹 Helper function to clean title for search (remove . - : symbols)
+        const cleanTitleForSearch = (title) => {
+            if (!title) return '';
+            return title
+                .replace(/[.\-:]/g, ' ')  // Replace . - : with spaces
+                .replace(/\s+/g, ' ')      // Collapse multiple spaces
+                .trim()
+                .toLowerCase();
+        };
+        
         // Helper function to generate queries for a given title (SERIES ONLY)
-        const addQueriesForTitle = (title, label = '') => {
+        // isItalianTitle flag indicates if this is the Italian title (higher priority)
+        const addQueriesForTitle = (title, label = '', isItalianTitle = false) => {
             if (!title || type !== 'series' || kitsuId) return;
             
             const seasonStr = String(season).padStart(2, '0');
             const episodeStr = String(episode).padStart(2, '0');
             
+            // Clean title for search (remove symbols)
+            const cleanedTitle = cleanTitleForSearch(title);
+            
             // Extract short version (before ":" if present)
             const shortTitle = title.includes(':') ? title.split(':')[0].trim() : title;
+            const cleanedShortTitle = cleanTitleForSearch(shortTitle);
             
-            // 0. SHORT TITLE ALONE FIRST (generic search - CRITICAL for enrichment!)
-            searchQueries.push(shortTitle);
-            
-            // 1. BASE QUERIES (short version - higher priority)
-            searchQueries.push(`${shortTitle} S${seasonStr}E${episodeStr}`);  // Episode specific
-            searchQueries.push(`${shortTitle} S${seasonStr}`);                 // Season pack
-            searchQueries.push(`${shortTitle} Stagione ${season}`);            // Italian word
-            searchQueries.push(`${shortTitle} Season ${season}`);              // English word
-            searchQueries.push(`${shortTitle} Complete`);                      // Complete pack
-            searchQueries.push(`${shortTitle} S01`);                           // S01 packs
-            
-            // 🔥 ADDED: Explicit "ita" queries for international sites
-            searchQueries.push(`${shortTitle} ita`);
-            searchQueries.push(`${shortTitle} S${seasonStr} ita`);
-            searchQueries.push(`${shortTitle} S${seasonStr}E${episodeStr} ita`);
-            
-            // 2. COMPLETE QUERIES WITH CODES (full title with ":")
-            if (title !== shortTitle) {
-                searchQueries.push(`${title} S${seasonStr}E${episodeStr}`);
-                searchQueries.push(`${title} S${seasonStr}`);
+            if (isItalianTitle) {
+                // 🇮🇹 ITALIAN TITLE: Higher priority, search with "ita" first
+                // Order: Most specific to least specific
+                
+                // 1. Cleaned full title + season/episode + "ita"
+                searchQueries.push(`${cleanedTitle} S${seasonStr}E${episodeStr} ita`);
+                searchQueries.push(`${cleanedTitle} S${seasonStr} ita`);
+                searchQueries.push(`${cleanedTitle} ita`);
+                
+                // 2. Cleaned full title + season/episode (without "ita")
+                searchQueries.push(`${cleanedTitle} S${seasonStr}E${episodeStr}`);
+                searchQueries.push(`${cleanedTitle} S${seasonStr}`);
+                searchQueries.push(`${cleanedTitle} Stagione ${season}`);
+                searchQueries.push(`${cleanedTitle}`);
+                
+                // 3. Short title variants (if different)
+                if (cleanedShortTitle !== cleanedTitle) {
+                    searchQueries.push(`${cleanedShortTitle} S${seasonStr} ita`);
+                    searchQueries.push(`${cleanedShortTitle} S${seasonStr}`);
+                    searchQueries.push(`${cleanedShortTitle} ita`);
+                }
+            } else {
+                // 🌍 ENGLISH TITLE: Lower priority, used as fallback
+                // Only add if we need fallback queries
+                
+                // 1. With "ita" for international sites
+                searchQueries.push(`${cleanedShortTitle} S${seasonStr} ita`);
+                searchQueries.push(`${cleanedShortTitle} S${seasonStr}E${episodeStr} ita`);
+                searchQueries.push(`${cleanedShortTitle} ita`);
+                
+                // 2. Without "ita" (last resort)
+                searchQueries.push(`${cleanedShortTitle} S${seasonStr}E${episodeStr}`);
+                searchQueries.push(`${cleanedShortTitle} S${seasonStr}`);
+                searchQueries.push(`${cleanedShortTitle} Stagione ${season}`);
+                searchQueries.push(`${cleanedShortTitle} Season ${season}`);
+                searchQueries.push(`${cleanedShortTitle} Complete`);
+                
+                // 3. Short title alone (for enrichment - LAST)
+                searchQueries.push(cleanedShortTitle);
             }
             
-            // 3. COMPLETE QUERIES WITH WORDS (full title with "Stagione/Season")
-            if (title !== shortTitle) {
-                searchQueries.push(`${title} Stagione ${season}`);
-                searchQueries.push(`${title} Season ${season}`);
-            }
-            
-            // 4. COMPLETE TITLE ONLY (for complete packs)
-            if (title !== shortTitle) {
-                searchQueries.push(title);
-            }
-            
-            // 5. NORMALIZED QUERIES (without ":" but with spaces)
-            if (title !== shortTitle && title.includes(':')) {
-                const normalized = title.replace(/:/g, '');
-                searchQueries.push(`${normalized} S${seasonStr}`);
-                searchQueries.push(`${normalized} S${seasonStr}E${episodeStr}`);
-            }
-            
-            if (label) console.log(`📝 Added queries for ${label}: "${title}"`);
+            if (label) console.log(`📝 Added queries for ${label}: "${title}" -> cleaned: "${cleanedTitle}"`);
         };
         
         // Always build queries (needed for enrichment even when skipping live search)
@@ -4025,8 +4091,15 @@ async function handleStream(type, id, config, workerOrigin) {
                 }
                 searchQueries.push(...uniqueQueries);
             } else { // Regular series search strategy
-                // Add queries for main English title
-                addQueriesForTitle(mediaDetails.title, 'English title');
+                // 🇮🇹 PRIORITY: Add Italian title queries FIRST (if available)
+                // This ensures we search with the full Italian title before generic English
+                if (italianTitle) {
+                    console.log(`🇮🇹 Adding Italian title queries FIRST (priority)...`);
+                    addQueriesForTitle(italianTitle, 'Italian title', true);
+                }
+                
+                // 🌍 Then add English title queries as fallback
+                addQueriesForTitle(mediaDetails.title, 'English title', false);
             }
         } else { // Movie
             searchQueries.push(`${mediaDetails.title} ${mediaDetails.year}`);
@@ -4034,10 +4107,8 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         // --- NUOVA MODIFICA: Aggiungi titolo italiano e originale alle query di ricerca ---
-        if (italianTitle && type === 'series' && !kitsuId) {
-            console.log(`🇮🇹 Adding Italian title queries...`);
-            addQueriesForTitle(italianTitle, 'Italian title');
-        } else if (italianTitle && type === 'movie') {
+        // 🇮🇹 Italian title for series is now added FIRST in the block above with priority
+        if (italianTitle && type === 'movie') {
             searchQueries.push(`${italianTitle} ${mediaDetails.year}`);
             searchQueries.push(italianTitle);
             // Also add short version if it has ":"
@@ -4099,23 +4170,55 @@ async function handleStream(type, id, config, workerOrigin) {
             console.log('🔍 [Jackettio] Instance initialized (ITALIAN ONLY mode)');
         }
 
-        // 1️⃣ UINDEX: Logica Specifica (Query Ridotte: Inglese+ita, Italiano)
+        // 1️⃣ UINDEX: Logica Specifica - Priorità al titolo italiano pulito
         if (useUIndex) {
             const uindexQueries = [];
-            // Query 1: Titolo Inglese + "ita"
-            uindexQueries.push(`${mediaDetails.title} ita`);
-            // Query 2: Titolo Italiano (se esiste)
-            if (italianTitle) uindexQueries.push(italianTitle);
+            const seasonStr = String(season).padStart(2, '0');
+            
+            // 🇮🇹 PRIORITY: Italian title first (cleaned, without symbols)
+            if (italianTitle) {
+                const cleanedItalian = cleanTitleForSearch(italianTitle);
+                // Most specific to least specific
+                uindexQueries.push(`${cleanedItalian} S${seasonStr} ita`);
+                uindexQueries.push(`${cleanedItalian} ita`);
+                uindexQueries.push(`${cleanedItalian} S${seasonStr}`);
+                uindexQueries.push(`${cleanedItalian}`);
+            }
+            
+            // 🌍 FALLBACK: English title (only if different from Italian)
+            const cleanedEnglish = cleanTitleForSearch(mediaDetails.title);
+            const cleanedItalian = italianTitle ? cleanTitleForSearch(italianTitle) : '';
+            if (cleanedEnglish !== cleanedItalian) {
+                uindexQueries.push(`${cleanedEnglish} S${seasonStr} ita`);
+                uindexQueries.push(`${cleanedEnglish} ita`);
+            }
             
             const uniqueUindexQueries = [...new Set(uindexQueries)];
-            console.log(`📊 [UIndex] Running optimized queries:`, uniqueUindexQueries);
+            console.log(`📊 [UIndex] Running optimized queries (ITA priority):`, uniqueUindexQueries);
             
-            for (const q of uniqueUindexQueries) {
+            // Track if we found results with Italian title (to enable early-exit)
+            let foundWithItalianTitle = false;
+            const italianQueryCount = italianTitle ? 4 : 0; // First 4 queries are Italian title
+            
+            for (let i = 0; i < uniqueUindexQueries.length; i++) {
+                const q = uniqueUindexQueries[i];
+                
+                // 🛑 EARLY EXIT: If we found good results with Italian title, skip English fallback queries
+                if (foundWithItalianTitle && i >= italianQueryCount) {
+                    console.log(`✅ [UIndex] Found ${rawResultsByProvider.UIndex.length} results with Italian title. Skipping English fallback queries.`);
+                    break;
+                }
+                
                 try {
                     const res = await fetchUIndexData(q, searchType, italianTitle);
                     if (res && res.length > 0) {
                         console.log(`📊 [UIndex] Found ${res.length} results for "${q}"`);
                         rawResultsByProvider.UIndex.push(...res);
+                        
+                        // Mark that we found results with Italian title queries
+                        if (i < italianQueryCount && rawResultsByProvider.UIndex.length >= 5) {
+                            foundWithItalianTitle = true;
+                        }
                     }
                 } catch (e) {
                     console.error(`❌ [UIndex] Error searching "${q}":`, e.message);
