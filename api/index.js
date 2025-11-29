@@ -4468,25 +4468,25 @@ async function handleStream(type, id, config, workerOrigin) {
             
             // 1. Check if it's a COMPLETE SEASON PACK (no specific episodes)
             // Patterns: "S01" alone, "Stagione 1", "Season 1", "[COMPLETA]", "Complete"
-            const seasonOnlyPatterns = [
-                // S01 or S1 NOT followed by E (episode indicator)
-                new RegExp(`[Ss](0?${seasonNum})(?![0-9])(?![Ee])(?!\\s*[Ee])`, 'i'),
-                // "Stagione X" or "Season X" not followed by episode
-                new RegExp(`(stagione|season)\\s*${seasonNum}(?!\\s*e|\\s*ep)`, 'i'),
-            ];
+            // IMPORTANT: S01.E01.E02 or S01.E01-02 are NOT season packs, they are episode packs!
             
             const isCompletePack = /\[COMPLETA\]|Complete\s*Series|Complete\s*Season|Serie\s*Completa|Stagione\s*Completa/i.test(title);
             
-            // Check for season pack (S01 without episode)
-            const hasSeasonOnly = seasonOnlyPatterns.some(pattern => {
-                if (pattern.test(title)) {
-                    // Make sure there's no episode pattern after
-                    const hasEpisode = /[Ss]\d+[Ee]\d+|[Ss]\d+\s*[Ee]\d+|\d+x\d+/i.test(title);
-                    const hasEpisodeRange = /[Ee](p)?\.?\s*\d+\s*[-–]\s*(E(p)?\.?\s*)?\d+/i.test(title);
-                    return !hasEpisode && !hasEpisodeRange;
-                }
-                return false;
-            });
+            // Check for episode indicators that mean it's NOT a complete season
+            // S01E01, S01.E01, S01 E01, S01-E01, 1x01, etc.
+            const hasEpisodeIndicator = /[Ss]\d+[.\s-]*[Ee]\d+|[Ss]\d+[Ee]\d+|\d+x\d+/i.test(title);
+            // Episode range like E01-E10, E01-10
+            const hasEpisodeRange = /[Ee](p)?\.?\s*\d+\s*[-–]\s*(E(p)?\.?\s*)?\d+/i.test(title);
+            // Multi-episode list like .E01.E02 or .01.02 after season
+            const hasMultiEpisodeList = /[Ss]\d+[.\s][Ee]?\d+[.\s][Ee]?\d+/i.test(title);
+            
+            // It's a season pack only if it has season number but NO episode indicators
+            const hasSeasonOnly = !hasEpisodeIndicator && !hasEpisodeRange && !hasMultiEpisodeList && (
+                // S01 or S1 pattern
+                new RegExp(`[Ss](0?${seasonNum})(?![0-9])`, 'i').test(title) ||
+                // "Stagione X" or "Season X" pattern
+                new RegExp(`(stagione|season)\\s*${seasonNum}(?![0-9])`, 'i').test(title)
+            );
             
             if (isCompletePack || hasSeasonOnly) {
                 // Verify it's the right season
@@ -4582,12 +4582,24 @@ async function handleStream(type, id, config, workerOrigin) {
             }
             
             // 5. If we found a specific episode that doesn't match, reject it
+            // Check S01E01 format
             const singleEpMatch = title.match(/[Ss](0?\d+)[Ee](0?\d+)/i);
             if (singleEpMatch) {
                 const matchedSeason = parseInt(singleEpMatch[1]);
                 const matchedEpisode = parseInt(singleEpMatch[2]);
                 if (matchedSeason === seasonNum && matchedEpisode !== episodeNum) {
                     console.log(`❌ [EPISODE FILTER] Single episode S${matchedSeason}E${matchedEpisode} != requested E${episodeNum}: "${title.substring(0, 60)}..."`);
+                    return false;
+                }
+            }
+            
+            // 5b. Check NxNN format (1x03, 2x15, etc.) - same as S01E03
+            const nxnMatch = title.match(/(\d+)x(0?\d+)(?![0-9\-])/i);
+            if (nxnMatch) {
+                const matchedSeason = parseInt(nxnMatch[1]);
+                const matchedEpisode = parseInt(nxnMatch[2]);
+                if (matchedSeason === seasonNum && matchedEpisode !== episodeNum) {
+                    console.log(`❌ [EPISODE FILTER] Single episode ${matchedSeason}x${matchedEpisode} != requested E${episodeNum}: "${title.substring(0, 60)}..."`);
                     return false;
                 }
             }
