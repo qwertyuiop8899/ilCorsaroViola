@@ -4458,7 +4458,7 @@ async function handleStream(type, id, config, workerOrigin) {
         }
 
         // 🎯 Helper: Calculate similarity between two strings (0-1)
-        // Uses Levenshtein distance normalized by max length
+        // Uses multiple strategies: Levenshtein, word overlap, containment
         const calculateSimilarity = (str1, str2) => {
             if (!str1 || !str2) return 0;
             if (str1 === str2) return 1;
@@ -4466,14 +4466,45 @@ async function handleStream(type, id, config, workerOrigin) {
             const s1 = str1.toLowerCase();
             const s2 = str2.toLowerCase();
             
-            // If one contains the other, high similarity
+            // Strategy 1: If one contains the other, high similarity
             if (s1.includes(s2) || s2.includes(s1)) {
                 const minLen = Math.min(s1.length, s2.length);
                 const maxLen = Math.max(s1.length, s2.length);
-                return minLen / maxLen;
+                return Math.max(0.8, minLen / maxLen); // At least 80%
             }
             
-            // Levenshtein distance
+            // Strategy 2: Word overlap (handles different word order)
+            // "Medical Division Dr House" vs "Dr House Medical Division" should match!
+            const words1 = s1.split(/\s+/).filter(w => w.length > 1); // Ignore single chars
+            const words2 = s2.split(/\s+/).filter(w => w.length > 1);
+            
+            if (words1.length > 0 && words2.length > 0) {
+                let matchedWords = 0;
+                const usedIndices = new Set();
+                
+                for (const w1 of words1) {
+                    for (let i = 0; i < words2.length; i++) {
+                        if (usedIndices.has(i)) continue;
+                        const w2 = words2[i];
+                        // Exact match or very similar (typo tolerance)
+                        if (w1 === w2 || (w1.length > 3 && w2.length > 3 && (w1.includes(w2) || w2.includes(w1)))) {
+                            matchedWords++;
+                            usedIndices.add(i);
+                            break;
+                        }
+                    }
+                }
+                
+                const maxWords = Math.max(words1.length, words2.length);
+                const wordOverlap = matchedWords / maxWords;
+                
+                // If most words match, it's a good match even if order is different
+                if (wordOverlap >= 0.6) {
+                    return Math.max(0.75, wordOverlap); // At least 75% if 60%+ words match
+                }
+            }
+            
+            // Strategy 3: Levenshtein distance (fallback)
             const matrix = [];
             for (let i = 0; i <= s1.length; i++) {
                 matrix[i] = [i];
@@ -4513,7 +4544,8 @@ async function handleStream(type, id, config, workerOrigin) {
             // This prevents "Chico and the Man S01E06 E Pluribus Used Car" from matching "Pluribus"
             if (expectedTitles && expectedTitles.length > 0) {
                 // Extract the series name from the torrent title (everything before S01E06 or 1x06)
-                const seriesNameMatch = title.match(/^(.+?)(?:\s*[.-]?\s*)?(?:[Ss]\d+[Ee]\d+|\d+x\d+|[Ss]tagione|[Ss]eason|\[COMPLETA\]|Complete)/i);
+                // Added: S01-08 (season range), Stagioni (plural), ep01-22
+                const seriesNameMatch = title.match(/^(.+?)(?:\s*[.-]?\s*)?(?:[Ss]\d+[Ee]\d+|[Ss]\d+[-–]\d+|\d+x\d+|[Ss]tagion[ei]|[Ss]eason|[Ee]p?\d+|\[COMPLETA\]|Complete)/i);
                 
                 if (seriesNameMatch) {
                     const torrentSeriesName = seriesNameMatch[1].trim().toLowerCase()
