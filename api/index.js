@@ -4457,14 +4457,110 @@ async function handleStream(type, id, config, workerOrigin) {
             console.log(`💾 [DB] Total raw results after DB merge: ${allRawResults.length}`);
         }
 
+        // 🎯 Helper: Calculate similarity between two strings (0-1)
+        // Uses Levenshtein distance normalized by max length
+        const calculateSimilarity = (str1, str2) => {
+            if (!str1 || !str2) return 0;
+            if (str1 === str2) return 1;
+            
+            const s1 = str1.toLowerCase();
+            const s2 = str2.toLowerCase();
+            
+            // If one contains the other, high similarity
+            if (s1.includes(s2) || s2.includes(s1)) {
+                const minLen = Math.min(s1.length, s2.length);
+                const maxLen = Math.max(s1.length, s2.length);
+                return minLen / maxLen;
+            }
+            
+            // Levenshtein distance
+            const matrix = [];
+            for (let i = 0; i <= s1.length; i++) {
+                matrix[i] = [i];
+            }
+            for (let j = 0; j <= s2.length; j++) {
+                matrix[0][j] = j;
+            }
+            for (let i = 1; i <= s1.length; i++) {
+                for (let j = 1; j <= s2.length; j++) {
+                    const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j] + 1,      // deletion
+                        matrix[i][j - 1] + 1,      // insertion
+                        matrix[i - 1][j - 1] + cost // substitution
+                    );
+                }
+            }
+            
+            const distance = matrix[s1.length][s2.length];
+            const maxLen = Math.max(s1.length, s2.length);
+            return 1 - (distance / maxLen);
+        };
+        
         // 🎯 Helper function to check if a title matches the requested episode
         // Returns true if: season pack complete, exact episode, or range that includes the episode
-        const matchesRequestedEpisode = (title, requestedSeason, requestedEpisode) => {
+        // Also validates that the series name matches the expected titles (75% fuzzy match)
+        const matchesRequestedEpisode = (title, requestedSeason, requestedEpisode, expectedTitles = []) => {
             if (!title || !requestedSeason || !requestedEpisode) return true; // No filter for movies
             
             const seasonNum = parseInt(requestedSeason);
             const episodeNum = parseInt(requestedEpisode);
             const titleLower = title.toLowerCase();
+            
+            const SIMILARITY_THRESHOLD = 0.75; // 75% match required
+            
+            // 🚨 NEW: Validate series name matches expected titles (fuzzy 75% match)
+            // This prevents "Chico and the Man S01E06 E Pluribus Used Car" from matching "Pluribus"
+            if (expectedTitles && expectedTitles.length > 0) {
+                // Extract the series name from the torrent title (everything before S01E06 or 1x06)
+                const seriesNameMatch = title.match(/^(.+?)(?:\s*[.-]?\s*)?(?:[Ss]\d+[Ee]\d+|\d+x\d+|[Ss]tagione|[Ss]eason|\[COMPLETA\]|Complete)/i);
+                
+                if (seriesNameMatch) {
+                    const torrentSeriesName = seriesNameMatch[1].trim().toLowerCase()
+                        .replace(/[.\-_]/g, ' ')  // Replace separators with spaces
+                        .replace(/\s+/g, ' ')      // Normalize spaces
+                        .replace(/\(\d{4}\)$/, '') // Remove year at end
+                        .trim();
+                    
+                    // Check if any expected title matches with 75% similarity
+                    let bestMatch = { title: '', similarity: 0 };
+                    
+                    const matchesExpectedTitle = expectedTitles.some(expectedTitle => {
+                        const cleanExpected = expectedTitle.toLowerCase()
+                            .replace(/[.\-_]/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
+                        
+                        // Calculate similarity
+                        const similarity = calculateSimilarity(torrentSeriesName, cleanExpected);
+                        
+                        if (similarity > bestMatch.similarity) {
+                            bestMatch = { title: cleanExpected, similarity };
+                        }
+                        
+                        // Also check if one starts with the other (common case)
+                        // "Pluribus 2025" should match "Pluribus"
+                        if (torrentSeriesName.startsWith(cleanExpected) || cleanExpected.startsWith(torrentSeriesName)) {
+                            const minLen = Math.min(torrentSeriesName.length, cleanExpected.length);
+                            const maxLen = Math.max(torrentSeriesName.length, cleanExpected.length);
+                            const startSimilarity = minLen / maxLen;
+                            if (startSimilarity >= SIMILARITY_THRESHOLD) {
+                                bestMatch = { title: cleanExpected, similarity: Math.max(similarity, startSimilarity) };
+                                return true;
+                            }
+                        }
+                        
+                        return similarity >= SIMILARITY_THRESHOLD;
+                    });
+                    
+                    if (!matchesExpectedTitle) {
+                        console.log(`❌ [EPISODE FILTER] Series name mismatch: "${torrentSeriesName}" vs expected [${expectedTitles.join(', ')}] (best: ${(bestMatch.similarity * 100).toFixed(0)}% < 75%): "${title.substring(0, 70)}..."`);
+                        return false;
+                    } else {
+                        console.log(`✅ [SERIES MATCH] "${torrentSeriesName}" matches "${bestMatch.title}" (${(bestMatch.similarity * 100).toFixed(0)}%)`);
+                    }
+                }
+            }
             
             // 1. Check if it's a COMPLETE SEASON PACK (no specific episodes)
             // Patterns: "S01" alone, "Stagione 1", "Season 1", "[COMPLETA]", "Complete"
@@ -4615,7 +4711,9 @@ async function handleStream(type, id, config, workerOrigin) {
             
             // 🎯 EPISODE FILTER: For series, filter out results that don't match the requested episode
             if (type === 'series' && season && episode) {
-                if (!matchesRequestedEpisode(result.title, season, episode)) {
+                // Pass expected titles to also validate series name
+                const expectedTitles = mediaDetails.titles || [mediaDetails.title];
+                if (!matchesRequestedEpisode(result.title, season, episode, expectedTitles)) {
                     continue; // Skip this result
                 }
             }
